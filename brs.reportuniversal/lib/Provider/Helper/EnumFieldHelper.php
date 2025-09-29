@@ -13,6 +13,9 @@ class EnumFieldHelper
     /** @var \mysqli Подключение к БД */
     private \mysqli $connection;
 
+    /**
+     * @param \mysqli $connection Нативное подключение mysqli
+     */
     public function __construct(\mysqli $connection)
     {
         $this->connection = $connection;
@@ -21,10 +24,10 @@ class EnumFieldHelper
     /**
      * Загружает данные для поля типа enumeration
      * 
-     * @param string $fieldCode Код поля
-     * @param array $fieldInfo Информация о поле
-     * @return array [deal_id => formatted_value]
-     * @throws ReportException
+     * @param string $fieldCode Код поля (например: UF_CRM_CATEGORY)
+     * @param array $fieldInfo Информация о поле из UserFieldMetaHelper
+     * @return array Ассоциативный массив [deal_id => formatted_value]
+     * @throws ReportException При ошибке выполнения SQL запроса
      */
     public function loadFieldData(string $fieldCode, array $fieldInfo): array
     {
@@ -42,16 +45,15 @@ class EnumFieldHelper
      * Загружает варианты для поля типа список
      * 
      * @param string $fieldCode Код поля
-     * @return array [enum_id => value]
-     * @throws ReportException
+     * @return array Ассоциативный массив [enum_id => ['value' => string, 'sort' => int]]
+     * @throws ReportException При ошибке выполнения SQL запроса
      */
-    public function loadEnumValues(string $fieldCode): array
+    private function loadEnumValues(string $fieldCode): array
     {
         $sql = "
             SELECT 
                 ue.ID as ENUM_ID,
                 ue.VALUE,
-                ue.XML_ID,
                 ue.SORT
             FROM b_user_field uf
             INNER JOIN b_user_field_enum ue ON uf.ID = ue.USER_FIELD_ID
@@ -73,7 +75,6 @@ class EnumFieldHelper
         while ($row = mysqli_fetch_assoc($result)) {
             $enumValues[$row['ENUM_ID']] = [
                 'value' => $row['VALUE'],
-                'xml_id' => $row['XML_ID'],
                 'sort' => (int)$row['SORT']
             ];
         }
@@ -87,9 +88,9 @@ class EnumFieldHelper
      * Загружает данные для одиночного поля типа список
      * 
      * @param string $fieldCode Код поля
-     * @param array $enumValues Варианты списка
-     * @return array [deal_id => value]
-     * @throws ReportException
+     * @param array $enumValues Варианты списка из loadEnumValues()
+     * @return array Ассоциативный массив [deal_id => enum_text_value]
+     * @throws ReportException При ошибке выполнения SQL запроса
      */
     private function loadSingleEnumData(string $fieldCode, array $enumValues): array
     {
@@ -120,9 +121,9 @@ class EnumFieldHelper
      * Загружает данные для множественного поля типа список
      * 
      * @param string $fieldCode Код поля
-     * @param array $enumValues Варианты списка
-     * @return array [deal_id => 'value1, value2, value3']
-     * @throws ReportException
+     * @param array $enumValues Варианты списка из loadEnumValues()
+     * @return array Ассоциативный массив [deal_id => 'value1, value2, value3']
+     * @throws ReportException При ошибке выполнения SQL запроса
      */
     private function loadMultipleEnumData(string $fieldCode, array $enumValues): array
     {
@@ -164,75 +165,11 @@ class EnumFieldHelper
                 return $a['sort'] <=> $b['sort'];
             });
             
-            // Извлекаем только значения и объединяем
+            // Извлекаем только значения и объединяем через запятую
             $sortedValues = array_column($values, 'value');
             $data[$dealId] = implode(', ', $sortedValues);
         }
         
         return $data;
-    }
-
-    /**
-     * Получает значение варианта списка по ID
-     * 
-     * @param string $fieldCode Код поля
-     * @param string $enumId ID варианта
-     * @return string|null Значение или null если не найдено
-     */
-    public function getEnumValueById(string $fieldCode, string $enumId): ?string
-    {
-        $enumValues = $this->loadEnumValues($fieldCode);
-        return $enumValues[$enumId]['value'] ?? null;
-    }
-
-    /**
-     * Получает все варианты списка для поля
-     * 
-     * @param string $fieldCode Код поля
-     * @return array [enum_id => ['value' => ..., 'xml_id' => ..., 'sort' => ...]]
-     */
-    public function getEnumValues(string $fieldCode): array
-    {
-        return $this->loadEnumValues($fieldCode);
-    }
-
-    /**
-     * Получает варианты списка отсортированные по sort
-     * 
-     * @param string $fieldCode Код поля
-     * @return array [enum_id => value] отсортированный массив
-     */
-    public function getSortedEnumValues(string $fieldCode): array
-    {
-        $enumValues = $this->loadEnumValues($fieldCode);
-        
-        // Сортируем по sort, потом по значению
-        uasort($enumValues, function($a, $b) {
-            if ($a['sort'] === $b['sort']) {
-                return strcmp($a['value'], $b['value']);
-            }
-            return $a['sort'] <=> $b['sort'];
-        });
-        
-        // Возвращаем только ID => value
-        $sorted = [];
-        foreach ($enumValues as $enumId => $enumData) {
-            $sorted[$enumId] = $enumData['value'];
-        }
-        
-        return $sorted;
-    }
-
-    /**
-     * Проверяет существование варианта списка
-     * 
-     * @param string $fieldCode Код поля
-     * @param string $enumId ID варианта
-     * @return bool
-     */
-    public function enumValueExists(string $fieldCode, string $enumId): bool
-    {
-        $enumValues = $this->loadEnumValues($fieldCode);
-        return isset($enumValues[$enumId]);
     }
 }
