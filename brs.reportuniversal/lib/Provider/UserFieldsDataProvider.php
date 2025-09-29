@@ -65,6 +65,7 @@ class UserFieldsDataProvider
                     return $this->enumHelper->loadFieldData($fieldCode, $fieldInfo);
                     
                 case 'string':
+                case 'integer':
                     return $this->stringHelper->loadFieldData($fieldCode, $fieldInfo);
                     
                 default:
@@ -103,7 +104,7 @@ class UserFieldsDataProvider
      * @param array $supportedTypes Поддерживаемые типы полей
      * @return array [field_code => field_info]
      */
-    public function getAllDealFields(array $supportedTypes = ['string', 'enumeration']): array
+    public function getAllDealFields(array $supportedTypes = ['string', 'enumeration', 'integer']): array
     {
         return $this->metaHelper->getAllFieldsForEntity('CRM_DEAL', $supportedTypes);
     }
