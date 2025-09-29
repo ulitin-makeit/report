@@ -1,141 +1,162 @@
 <?php
 
-namespace ReportsModule\Provider;
+namespace ReportsModule\Provider\Helper;
 
 use ReportsModule\Exception\ReportException;
-use ReportsModule\Provider\Helper\UserFieldMetaHelper;
-use ReportsModule\Provider\Helper\EnumFieldHelper;
-use ReportsModule\Provider\Helper\StringFieldHelper;
 
 /**
- * Утилитарный класс для загрузки данных пользовательских полей (UF_*)
- * Координирует работу хелперов для различных типов полей
- * Используется другими provider'ами для получения готовых данных по CODE поля
+ * Хелпер для работы с пользовательскими полями типа "строка" (string) и "число" (integer)
+ * Загружает текстовые и числовые значения полей для сделок
  */
-class UserFieldsDataProvider
+class StringFieldHelper
 {
     /** @var \mysqli Подключение к БД */
     private \mysqli $connection;
-    
-    /** @var UserFieldMetaHelper Хелпер для метаданных */
-    private UserFieldMetaHelper $metaHelper;
-    
-    /** @var EnumFieldHelper Хелпер для полей типа список */
-    private EnumFieldHelper $enumHelper;
-    
-    /** @var StringFieldHelper Хелпер для строковых полей */
-    private StringFieldHelper $stringHelper;
 
+    /**
+     * @param \mysqli $connection Нативное подключение mysqli
+     */
     public function __construct(\mysqli $connection)
     {
         $this->connection = $connection;
-        $this->initHelpers();
     }
 
     /**
-     * Инициализирует хелперы
-     */
-    private function initHelpers(): void
-    {
-        $this->metaHelper = new UserFieldMetaHelper($this->connection);
-        $this->enumHelper = new EnumFieldHelper($this->connection);
-        $this->stringHelper = new StringFieldHelper($this->connection);
-    }
-
-    /**
-     * Загружает данные для указанного UF поля
+     * Загружает данные для строкового или числового поля
      * 
-     * @param string $fieldCode Код поля (например: UF_CRM_CATEGORY)
-     * @return array Ассоциативный массив [deal_id => formatted_value]
-     * @throws ReportException
+     * @param string $fieldCode Код поля (например: UF_CRM_COMMENT, UF_CRM_COUNT)
+     * @param array $fieldInfo Информация о поле из UserFieldMetaHelper
+     * @return array Ассоциативный массив [deal_id => value]
+     * @throws ReportException При ошибке выполнения SQL запроса
      */
-    public function loadFieldData(string $fieldCode): array
+    public function loadFieldData(string $fieldCode, array $fieldInfo): array
     {
-        // Получаем информацию о поле через метахелпер
-        $fieldInfo = $this->metaHelper->getFieldInfo($fieldCode);
-        
-        if (!$fieldInfo) {
-            return []; // Поле не найдено
+        // Поддерживаем типы string и integer
+        if (!in_array($fieldInfo['type'], ['string', 'integer'])) {
+            throw new ReportException("Неподдерживаемый тип поля: {$fieldInfo['type']}. Ожидается string или integer.");
         }
         
-        // Загружаем данные через соответствующий хелпер
-        try {
-            switch ($fieldInfo['type']) {
-                case 'enumeration':
-                    return $this->enumHelper->loadFieldData($fieldCode, $fieldInfo);
-                    
-                case 'string':
-                case 'integer':
-                    return $this->stringHelper->loadFieldData($fieldCode, $fieldInfo);
-                    
-                default:
-                    throw new ReportException("Неподдерживаемый тип поля: " . $fieldInfo['type']);
+        if ($fieldInfo['multiple']) {
+            return $this->loadMultipleData($fieldCode, $fieldInfo['type']);
+        } else {
+            return $this->loadSingleData($fieldCode, $fieldInfo['type']);
+        }
+    }
+
+    /**
+     * Загружает данные для одиночного поля (string или integer)
+     * 
+     * @param string $fieldCode Код поля
+     * @param string $fieldType Тип поля (string или integer)
+     * @return array Ассоциативный массив [deal_id => cleaned_value]
+     * @throws ReportException При ошибке выполнения SQL запроса
+     */
+    private function loadSingleData(string $fieldCode, string $fieldType): array
+    {
+        $sql = "SELECT VALUE_ID as DEAL_ID, `{$fieldCode}` as FIELD_VALUE FROM b_uts_crm_deal";
+        
+        $result = mysqli_query($this->connection, $sql);
+        if (!$result) {
+            throw new ReportException("Ошибка загрузки данных поля {$fieldCode}: " . mysqli_error($this->connection));
+        }
+        
+        $data = [];
+        while ($row = mysqli_fetch_assoc($result)) {
+            $dealId = (int)$row['DEAL_ID'];
+            $value = $row['FIELD_VALUE'];
+            
+            if ($value === null || $value === '') {
+                $data[$dealId] = '';
+            } else {
+                $data[$dealId] = $this->cleanValue((string)$value, $fieldType);
             }
-        } catch (\Exception $e) {
-            throw new ReportException("Ошибка загрузки данных поля {$fieldCode}: " . $e->getMessage(), 0, $e);
         }
+        
+        mysqli_free_result($result);
+        return $data;
     }
 
     /**
-     * Проверяет существование поля
+     * Загружает данные для множественного поля (string или integer)
      * 
      * @param string $fieldCode Код поля
-     * @return bool
+     * @param string $fieldType Тип поля (string или integer)
+     * @return array Ассоциативный массив [deal_id => 'value1, value2, value3']
+     * @throws ReportException При ошибке выполнения SQL запроса
      */
-    public function fieldExists(string $fieldCode): bool
+    private function loadMultipleData(string $fieldCode, string $fieldType): array
     {
-        return $this->metaHelper->fieldExists($fieldCode);
+        $tableName = "b_uts_crm_deal_" . strtolower($fieldCode);
+        $sql = "SELECT VALUE_ID as DEAL_ID, VALUE as FIELD_VALUE FROM `{$tableName}` ORDER BY VALUE_ID, ID";
+        
+        $result = mysqli_query($this->connection, $sql);
+        if (!$result) {
+            // Таблица может не существовать если поле не использовалось
+            return [];
+        }
+        
+        $dealValues = [];
+        while ($row = mysqli_fetch_assoc($result)) {
+            $dealId = (int)$row['DEAL_ID'];
+            $value = $row['FIELD_VALUE'];
+            
+            if ($value !== null && $value !== '') {
+                if (!isset($dealValues[$dealId])) {
+                    $dealValues[$dealId] = [];
+                }
+                $dealValues[$dealId][] = $this->cleanValue((string)$value, $fieldType);
+            }
+        }
+        
+        mysqli_free_result($result);
+        
+        // Объединяем множественные значения через запятую
+        $data = [];
+        foreach ($dealValues as $dealId => $values) {
+            $uniqueValues = array_filter(array_unique($values));
+            $data[$dealId] = implode(', ', $uniqueValues);
+        }
+        
+        return $data;
     }
 
     /**
-     * Возвращает информацию о поле
+     * Очищает значение для корректного отображения в CSV
      * 
-     * @param string $fieldCode Код поля
-     * @return array|null
+     * @param string $value Исходное значение
+     * @param string $fieldType Тип поля (string или integer)
+     * @return string Очищенное значение для записи в CSV
      */
-    public function getFieldInfo(string $fieldCode): ?array
+    private function cleanValue(string $value, string $fieldType): string
     {
-        return $this->metaHelper->getFieldInfo($fieldCode);
-    }
-
-    /**
-     * Возвращает список всех UF полей для сделок
-     * 
-     * @param array $supportedTypes Поддерживаемые типы полей
-     * @return array [field_code => field_info]
-     */
-    public function getAllDealFields(array $supportedTypes = ['string', 'enumeration', 'integer']): array
-    {
-        return $this->metaHelper->getAllFieldsForEntity('CRM_DEAL', $supportedTypes);
-    }
-
-    /**
-     * Возвращает метахелпер для прямого использования
-     * 
-     * @return UserFieldMetaHelper
-     */
-    public function getMetaHelper(): UserFieldMetaHelper
-    {
-        return $this->metaHelper;
-    }
-
-    /**
-     * Возвращает хелпер для полей типа список
-     * 
-     * @return EnumFieldHelper
-     */
-    public function getEnumHelper(): EnumFieldHelper
-    {
-        return $this->enumHelper;
-    }
-
-    /**
-     * Возвращает хелпер для строковых полей
-     * 
-     * @return StringFieldHelper
-     */
-    public function getStringHelper(): StringFieldHelper
-    {
-        return $this->stringHelper;
+        if ($fieldType === 'integer') {
+            // Для числовых полей - оставляем только цифры, плюс и минус
+            $cleaned = preg_replace('/[^0-9\-+]/', '', $value);
+            
+            // Если после очистки ничего не осталось - возвращаем пустую строку
+            if ($cleaned === '') {
+                return '';
+            }
+            
+            // Проверяем что это валидное число
+            if (is_numeric($cleaned)) {
+                return $cleaned;
+            } else {
+                return '';
+            }
+        } else {
+            // Для строковых полей - стандартная очистка
+            // Удаляем переносы строк и лишние пробелы
+            $cleaned = preg_replace('/\s+/', ' ', $value);
+            $cleaned = trim($cleaned);
+            
+            // Удаляем HTML теги если есть
+            $cleaned = strip_tags($cleaned);
+            
+            // Декодируем HTML entities
+            $cleaned = html_entity_decode($cleaned, ENT_QUOTES, 'UTF-8');
+            
+            return $cleaned;
+        }
     }
 }
