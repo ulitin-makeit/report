@@ -29,14 +29,12 @@ class UserFieldMetaHelper
     {
         $sql = "
             SELECT 
+                ID,
                 FIELD_NAME,
                 ENTITY_ID,
                 USER_TYPE_ID,
-                MULTIPLE,
-                MANDATORY,
                 SORT,
-                EDIT_FORM_LABEL,
-                LIST_COLUMN_LABEL,
+                MULTIPLE,
                 SETTINGS
             FROM b_user_field 
             WHERE FIELD_NAME = ?
@@ -60,14 +58,12 @@ class UserFieldMetaHelper
         }
         
         return [
+            'id' => (int)$row['ID'],
             'name' => $row['FIELD_NAME'],
             'entity_id' => $row['ENTITY_ID'],
             'type' => $row['USER_TYPE_ID'],
             'multiple' => $row['MULTIPLE'] === 'Y',
-            'mandatory' => $row['MANDATORY'] === 'Y',
             'sort' => (int)$row['SORT'],
-            'edit_label' => $row['EDIT_FORM_LABEL'],
-            'list_label' => $row['LIST_COLUMN_LABEL'],
             'settings' => $row['SETTINGS'] ? unserialize($row['SETTINGS']) : []
         ];
     }
@@ -95,14 +91,12 @@ class UserFieldMetaHelper
     {
         $sql = "
             SELECT 
+                ID,
                 FIELD_NAME,
                 ENTITY_ID,
                 USER_TYPE_ID,
-                MULTIPLE,
-                MANDATORY,
                 SORT,
-                EDIT_FORM_LABEL,
-                LIST_COLUMN_LABEL,
+                MULTIPLE,
                 SETTINGS
             FROM b_user_field 
             WHERE ENTITY_ID = ?
@@ -135,14 +129,12 @@ class UserFieldMetaHelper
         while ($row = mysqli_fetch_assoc($result)) {
             $fieldCode = $row['FIELD_NAME'];
             $fields[$fieldCode] = [
+                'id' => (int)$row['ID'],
                 'name' => $row['FIELD_NAME'],
                 'entity_id' => $row['ENTITY_ID'],
                 'type' => $row['USER_TYPE_ID'],
                 'multiple' => $row['MULTIPLE'] === 'Y',
-                'mandatory' => $row['MANDATORY'] === 'Y',
                 'sort' => (int)$row['SORT'],
-                'edit_label' => $row['EDIT_FORM_LABEL'],
-                'list_label' => $row['LIST_COLUMN_LABEL'],
                 'settings' => $row['SETTINGS'] ? unserialize($row['SETTINGS']) : []
             ];
         }
@@ -185,23 +177,4 @@ class UserFieldMetaHelper
         return array_keys($fields);
     }
 
-    /**
-     * Получает читаемое название поля
-     * 
-     * @param string $fieldCode Код поля
-     * @param string $labelType Тип метки: 'edit' или 'list'
-     * @return string Название поля
-     */
-    public function getFieldLabel(string $fieldCode, string $labelType = 'list'): string
-    {
-        $fieldInfo = $this->getFieldInfo($fieldCode);
-        
-        if (!$fieldInfo) {
-            return $fieldCode; // Возвращаем код если поле не найдено
-        }
-        
-        $label = $labelType === 'edit' ? $fieldInfo['edit_label'] : $fieldInfo['list_label'];
-        
-        return $label ?: $fieldCode;
-    }
 }
