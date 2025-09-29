@@ -6,6 +6,7 @@ use ReportsModule\Exception\ReportException;
 use ReportsModule\Provider\Helper\UserFieldMetaHelper;
 use ReportsModule\Provider\Helper\EnumFieldHelper;
 use ReportsModule\Provider\Helper\StringFieldHelper;
+use ReportsModule\Provider\Helper\OrmListFindFieldHelper;
 
 /**
  * Утилитарный класс для загрузки данных пользовательских полей (UF_*)
@@ -25,6 +26,9 @@ class UserFieldsDataProvider
     
     /** @var StringFieldHelper Хелпер для строковых полей */
     private StringFieldHelper $stringHelper;
+    
+    /** @var OrmListFindFieldHelper Хелпер для полей типа orm_list_find */
+    private OrmListFindFieldHelper $ormHelper;
 
     public function __construct(\mysqli $connection)
     {
@@ -40,6 +44,7 @@ class UserFieldsDataProvider
         $this->metaHelper = new UserFieldMetaHelper($this->connection);
         $this->enumHelper = new EnumFieldHelper($this->connection);
         $this->stringHelper = new StringFieldHelper($this->connection);
+        $this->ormHelper = new OrmListFindFieldHelper($this->connection);
     }
 
     /**
@@ -67,6 +72,9 @@ class UserFieldsDataProvider
                 case 'string':
                 case 'integer':
                     return $this->stringHelper->loadFieldData($fieldCode, $fieldInfo);
+                    
+                case 'orm_list_find':
+                    return $this->ormHelper->loadFieldData($fieldCode, $fieldInfo);
                     
                 default:
                     throw new ReportException("Неподдерживаемый тип поля: " . $fieldInfo['type']);
@@ -104,7 +112,7 @@ class UserFieldsDataProvider
      * @param array $supportedTypes Поддерживаемые типы полей
      * @return array [field_code => field_info]
      */
-    public function getAllDealFields(array $supportedTypes = ['string', 'enumeration', 'integer']): array
+    public function getAllDealFields(array $supportedTypes = ['string', 'enumeration', 'integer', 'orm_list_find']): array
     {
         return $this->metaHelper->getAllFieldsForEntity('CRM_DEAL', $supportedTypes);
     }
@@ -137,5 +145,15 @@ class UserFieldsDataProvider
     public function getStringHelper(): StringFieldHelper
     {
         return $this->stringHelper;
+    }
+
+    /**
+     * Возвращает хелпер для полей типа orm_list_find
+     * 
+     * @return OrmListFindFieldHelper
+     */
+    public function getOrmHelper(): OrmListFindFieldHelper
+    {
+        return $this->ormHelper;
     }
 }
