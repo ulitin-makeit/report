@@ -1,18 +1,18 @@
 <?php
 
-namespace ReportsModule\Enricher;
+namespace ReportsModule\Provider;
 
 use ReportsModule\Exception\ReportException;
-use ReportsModule\Enricher\Helper\UserFieldMetaHelper;
-use ReportsModule\Enricher\Helper\EnumFieldHelper;
-use ReportsModule\Enricher\Helper\StringFieldHelper;
+use ReportsModule\Provider\Helper\UserFieldMetaHelper;
+use ReportsModule\Provider\Helper\EnumFieldHelper;
+use ReportsModule\Provider\Helper\StringFieldHelper;
 
 /**
  * Утилитарный класс для загрузки данных пользовательских полей (UF_*)
  * Координирует работу хелперов для различных типов полей
- * Используется другими enricher'ами для получения готовых данных по CODE поля
+ * Используется другими provider'ами для получения готовых данных по CODE поля
  */
-class UserFieldsEnricher
+class UserFieldsDataProvider
 {
     /** @var \mysqli Подключение к БД */
     private \mysqli $connection;

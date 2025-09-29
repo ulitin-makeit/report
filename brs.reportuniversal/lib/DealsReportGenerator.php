@@ -5,7 +5,7 @@ namespace ReportsModule;
 use Bitrix\Main\Application;
 use ReportsModule\Iterator\DealsIterator;
 use ReportsModule\Writer\CsvWriter;
-use ReportsModule\Enricher\PropertyEnricherInterface;
+use ReportsModule\Provider\DataProviderInterface;
 use ReportsModule\Exception\ReportException;
 
 /**
@@ -17,8 +17,8 @@ class DealsReportGenerator
     /** @var \mysqli Нативное подключение mysqli */
     private \mysqli $nativeConnection;
     
-    /** @var PropertyEnricherInterface[] Массив enricher'ов */
-    private array $enrichers = [];
+    /** @var DataProviderInterface[] Массив provider'ов */
+    private array $providers = [];
     
     /** @var array Прямые поля сделки из основной таблицы */
     private array $directDealFields = [
@@ -57,7 +57,7 @@ class DealsReportGenerator
     {
         $this->outputFilePath = $outputFilePath;
         $this->initConnection();
-        $this->loadEnrichers();
+        $this->loadProviders();
         $this->dealsIterator = new DealsIterator($this->nativeConnection, $this->directDealFields);
         $this->csvWriter = new CsvWriter($outputFilePath);
     }
@@ -92,8 +92,8 @@ class DealsReportGenerator
     public function generate(): void
     {
         try {
-            // Предзагружаем данные во всех enricher'ах
-            $this->preloadEnrichersData();
+            // Предзагружаем данные во всех provider'ах
+            $this->preloadProvidersData();
             
             // Формируем и записываем заголовки CSV
             $headers = $this->buildCsvHeaders();
@@ -111,53 +111,53 @@ class DealsReportGenerator
     }
 
     /**
-     * Автоматически загружает все enricher'ы из папки Enricher
+     * Автоматически загружает все provider'ы из папки Provider/Properties
      * 
      * @return void
      * @throws ReportException
      */
-    private function loadEnrichers(): void
+    private function loadProviders(): void
     {
-        $enricherDir = __DIR__ . '/Enricher/Properties/';
+        $providerDir = __DIR__ . '/Provider/Properties/';
         
-        if (!is_dir($enricherDir)) {
-            throw new ReportException("Папка с enricher'ами не найдена: " . $enricherDir);
+        if (!is_dir($providerDir)) {
+            throw new ReportException("Папка с provider'ами не найдена: " . $providerDir);
         }
         
-        $files = glob($enricherDir . '*Enricher.php');
-        $enricherClasses = [];
+        $files = glob($providerDir . '*Provider.php');
+        $providerClasses = [];
         
         foreach ($files as $file) {
             $className = basename($file, '.php');
-            $fullClassName = "\\ReportsModule\\Enricher\\Properties\\{$className}";
+            $fullClassName = "\\ReportsModule\\Provider\\Properties\\{$className}";
             
             if (class_exists($fullClassName)) {
-                $enricherClasses[] = $fullClassName;
+                $providerClasses[] = $fullClassName;
             }
         }
         
         // Сортируем по алфавиту для стабильного порядка
-        sort($enricherClasses);
+        sort($providerClasses);
         
-        // Создаем экземпляры enricher'ов
-        foreach ($enricherClasses as $className) {
+        // Создаем экземпляры provider'ов
+        foreach ($providerClasses as $className) {
             try {
-                $this->enrichers[] = new $className($this->nativeConnection);
+                $this->providers[] = new $className($this->nativeConnection);
             } catch (\Exception $e) {
-                throw new ReportException("Ошибка при создании enricher'а {$className}: " . $e->getMessage());
+                throw new ReportException("Ошибка при создании provider'а {$className}: " . $e->getMessage());
             }
         }
     }
 
     /**
-     * Вызывает preloadData() у всех enricher'ов
+     * Вызывает preloadData() у всех provider'ов
      * 
      * @return void
      */
-    private function preloadEnrichersData(): void
+    private function preloadProvidersData(): void
     {
-        foreach ($this->enrichers as $enricher) {
-            $enricher->preloadData();
+        foreach ($this->providers as $provider) {
+            $provider->preloadData();
         }
     }
 
@@ -170,10 +170,10 @@ class DealsReportGenerator
     {
         $headers = $this->directDealFields;
         
-        // Добавляем заголовки от enricher'ов (уже отсортированы по алфавиту)
-        foreach ($this->enrichers as $enricher) {
-            $enricherHeaders = $enricher->getColumnNames();
-            $headers = array_merge($headers, $enricherHeaders);
+        // Добавляем заголовки от provider'ов (уже отсортированы по алфавиту)
+        foreach ($this->providers as $provider) {
+            $providerHeaders = $provider->getColumnNames();
+            $headers = array_merge($headers, $providerHeaders);
         }
         
         return $headers;
@@ -188,11 +188,11 @@ class DealsReportGenerator
     {
         while (($dealData = $this->dealsIterator->getNextDeal()) !== null) {
             try {
-                // Обогащаем сделку через все enricher'ы
-                $enrichedData = $this->enrichDeal($dealData);
+                // Заполняем данными сделку через все provider'ы
+                $filledData = $this->fillDealData($dealData);
                 
                 // Записываем строку в CSV
-                $this->csvWriter->writeRow($enrichedData);
+                $this->csvWriter->writeRow($filledData);
                 
             } catch (\Exception $e) {
                 // Логируем ошибку и продолжаем обработку
@@ -206,22 +206,22 @@ class DealsReportGenerator
     }
 
     /**
-     * Обогащает данные сделки через все enricher'ы
+     * Заполняет данными сделку через все provider'ы
      * 
      * @param array $dealData Базовые данные сделки
      * @return array Полные данные для записи в CSV
      */
-    private function enrichDeal(array $dealData): array
+    private function fillDealData(array $dealData): array
     {
         $result = $dealData;
         
-        foreach ($this->enrichers as $enricher) {
+        foreach ($this->providers as $provider) {
             try {
-                $enrichedFields = $enricher->enrichDeal($dealData, (int)$dealData['ID']);
-                $result = array_merge($result, $enrichedFields);
+                $additionalFields = $provider->fillDealData($dealData, (int)$dealData['ID']);
+                $result = array_merge($result, $additionalFields);
             } catch (\Exception $e) {
-                // При ошибке в enricher'е добавляем ERROR для его полей
-                $columnNames = $enricher->getColumnNames();
+                // При ошибке в provider'е добавляем ERROR для его полей
+                $columnNames = $provider->getColumnNames();
                 foreach ($columnNames as $columnName) {
                     $result[$columnName] = 'ERROR';
                 }
@@ -241,9 +241,9 @@ class DealsReportGenerator
     {
         $errorRow = $dealData;
         
-        // Заполняем поля enricher'ов значением ERROR
-        foreach ($this->enrichers as $enricher) {
-            $columnNames = $enricher->getColumnNames();
+        // Заполняем поля provider'ов значением ERROR
+        foreach ($this->providers as $provider) {
+            $columnNames = $provider->getColumnNames();
             foreach ($columnNames as $columnName) {
                 $errorRow[$columnName] = 'ERROR';
             }
@@ -253,13 +253,13 @@ class DealsReportGenerator
     }
 
     /**
-     * Возвращает количество загруженных enricher'ов
+     * Возвращает количество загруженных provider'ов
      * 
      * @return int
      */
-    public function getEnrichersCount(): int
+    public function getProvidersCount(): int
     {
-        return count($this->enrichers);
+        return count($this->providers);
     }
     
     /**

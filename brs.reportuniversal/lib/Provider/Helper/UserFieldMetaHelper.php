@@ -1,6 +1,6 @@
 <?php
 
-namespace ReportsModule\Enricher\Helper;
+namespace ReportsModule\Provider\Helper;
 
 use ReportsModule\Exception\ReportException;
 
@@ -12,12 +12,6 @@ class UserFieldMetaHelper
 {
     /** @var \mysqli Подключение к БД */
     private \mysqli $connection;
-    
-    /** @var array Кэш метаданных полей [field_code => field_info] */
-    private array $fieldsCache = [];
-    
-    /** @var array Кэш полей по сущностям [entity_id => [field_code => field_info]] */
-    private array $entityFieldsCache = [];
 
     public function __construct(\mysqli $connection)
     {
@@ -33,11 +27,6 @@ class UserFieldMetaHelper
      */
     public function getFieldInfo(string $fieldCode): ?array
     {
-        // Проверяем кэш
-        if (isset($this->fieldsCache[$fieldCode])) {
-            return $this->fieldsCache[$fieldCode];
-        }
-        
         $sql = "
             SELECT 
                 FIELD_NAME,
@@ -67,12 +56,10 @@ class UserFieldMetaHelper
         mysqli_stmt_close($stmt);
         
         if (!$row) {
-            // Кэшируем отрицательный результат
-            $this->fieldsCache[$fieldCode] = null;
             return null;
         }
         
-        $fieldInfo = [
+        return [
             'name' => $row['FIELD_NAME'],
             'entity_id' => $row['ENTITY_ID'],
             'type' => $row['USER_TYPE_ID'],
@@ -83,11 +70,6 @@ class UserFieldMetaHelper
             'list_label' => $row['LIST_COLUMN_LABEL'],
             'settings' => $row['SETTINGS'] ? unserialize($row['SETTINGS']) : []
         ];
-        
-        // Кэшируем результат
-        $this->fieldsCache[$fieldCode] = $fieldInfo;
-        
-        return $fieldInfo;
     }
 
     /**
@@ -111,13 +93,6 @@ class UserFieldMetaHelper
      */
     public function getAllFieldsForEntity(string $entityId, array $supportedTypes = []): array
     {
-        $cacheKey = $entityId . ':' . implode(',', $supportedTypes);
-        
-        // Проверяем кэш
-        if (isset($this->entityFieldsCache[$cacheKey])) {
-            return $this->entityFieldsCache[$cacheKey];
-        }
-        
         $sql = "
             SELECT 
                 FIELD_NAME,
@@ -159,7 +134,7 @@ class UserFieldMetaHelper
         
         while ($row = mysqli_fetch_assoc($result)) {
             $fieldCode = $row['FIELD_NAME'];
-            $fieldInfo = [
+            $fields[$fieldCode] = [
                 'name' => $row['FIELD_NAME'],
                 'entity_id' => $row['ENTITY_ID'],
                 'type' => $row['USER_TYPE_ID'],
@@ -170,17 +145,9 @@ class UserFieldMetaHelper
                 'list_label' => $row['LIST_COLUMN_LABEL'],
                 'settings' => $row['SETTINGS'] ? unserialize($row['SETTINGS']) : []
             ];
-            
-            $fields[$fieldCode] = $fieldInfo;
-            
-            // Также кэшируем в основном кэше
-            $this->fieldsCache[$fieldCode] = $fieldInfo;
         }
         
         mysqli_stmt_close($stmt);
-        
-        // Кэшируем результат
-        $this->entityFieldsCache[$cacheKey] = $fields;
         
         return $fields;
     }
@@ -236,29 +203,5 @@ class UserFieldMetaHelper
         $label = $labelType === 'edit' ? $fieldInfo['edit_label'] : $fieldInfo['list_label'];
         
         return $label ?: $fieldCode;
-    }
-
-    /**
-     * Очищает кэш
-     * 
-     * @return void
-     */
-    public function clearCache(): void
-    {
-        $this->fieldsCache = [];
-        $this->entityFieldsCache = [];
-    }
-
-    /**
-     * Возвращает статистику кэша
-     * 
-     * @return array
-     */
-    public function getCacheStats(): array
-    {
-        return [
-            'fields_cached' => count($this->fieldsCache),
-            'entity_queries_cached' => count($this->entityFieldsCache)
-        ];
     }
 }

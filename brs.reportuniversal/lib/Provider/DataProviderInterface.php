@@ -1,22 +1,22 @@
 <?php
 
-namespace ReportsModule\Enricher;
+namespace ReportsModule\Provider;
 
 /**
- * Интерфейс для классов обогащения данных сделок
- * Каждый enricher отвечает за одно или несколько связанных свойств
+ * Интерфейс для классов предоставления данных сделок
+ * Каждый provider отвечает за одно или несколько связанных свойств
  */
-interface PropertyEnricherInterface
+interface DataProviderInterface
 {
     /**
-     * Конструктор enricher'а
+     * Конструктор provider'а
      * 
      * @param \mysqli $connection Нативное mysqli подключение к базе данных
      */
     public function __construct(\mysqli $connection);
 
     /**
-     * Предзагружает все необходимые данные для обогащения сделок
+     * Предзагружает все необходимые данные для заполнения сделок
      * Вызывается один раз перед началом обработки сделок
      * Данные сохраняются в свойствах класса для быстрого доступа
      * 
@@ -25,7 +25,7 @@ interface PropertyEnricherInterface
     public function preloadData(): void;
 
     /**
-     * Обогащает данные конкретной сделки
+     * Заполняет данными конкретную сделку
      * 
      * @param array $dealData Данные сделки (плоский ассоциативный массив)
      * @param int $dealId ID сделки
@@ -34,11 +34,11 @@ interface PropertyEnricherInterface
      *               При ошибке возвращает "ERROR" для соответствующих полей
      *               Множественные значения объединяются через запятую
      */
-    public function enrichDeal(array $dealData, int $dealId): array;
+    public function fillDealData(array $dealData, int $dealId): array;
 
     /**
-     * Возвращает названия колонок, которые добавляет этот enricher
-     * Порядок колонок должен соответствовать порядку данных в enrichDeal()
+     * Возвращает названия колонок, которые добавляет этот provider
+     * Порядок колонок должен соответствовать порядку данных в fillDealData()
      * 
      * @return array Массив названий колонок для заголовков CSV
      */

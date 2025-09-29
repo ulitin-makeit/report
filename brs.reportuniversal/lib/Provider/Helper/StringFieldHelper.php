@@ -1,6 +1,6 @@
 <?php
 
-namespace ReportsModule\Enricher\Helper;
+namespace ReportsModule\Provider\Helper;
 
 use ReportsModule\Exception\ReportException;
 

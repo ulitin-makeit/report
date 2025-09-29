@@ -1,6 +1,6 @@
 <?php
 
-namespace ReportsModule\Enricher\Helper;
+namespace ReportsModule\Provider\Helper;
 
 use ReportsModule\Exception\ReportException;
 
@@ -12,9 +12,6 @@ class EnumFieldHelper
 {
     /** @var \mysqli Подключение к БД */
     private \mysqli $connection;
-    
-    /** @var array Кэш вариантов списков [field_code => [enum_id => value]] */
-    private array $enumValuesCache = [];
 
     public function __construct(\mysqli $connection)
     {
@@ -50,11 +47,6 @@ class EnumFieldHelper
      */
     public function loadEnumValues(string $fieldCode): array
     {
-        // Проверяем кэш
-        if (isset($this->enumValuesCache[$fieldCode])) {
-            return $this->enumValuesCache[$fieldCode];
-        }
-        
         $sql = "
             SELECT 
                 ue.ID as ENUM_ID,
@@ -87,9 +79,6 @@ class EnumFieldHelper
         }
         
         mysqli_stmt_close($stmt);
-        
-        // Кэшируем результат
-        $this->enumValuesCache[$fieldCode] = $enumValues;
         
         return $enumValues;
     }
@@ -245,28 +234,5 @@ class EnumFieldHelper
     {
         $enumValues = $this->loadEnumValues($fieldCode);
         return isset($enumValues[$enumId]);
-    }
-
-    /**
-     * Очищает кэш вариантов списков
-     * 
-     * @return void
-     */
-    public function clearCache(): void
-    {
-        $this->enumValuesCache = [];
-    }
-
-    /**
-     * Возвращает статистику кэша
-     * 
-     * @return array
-     */
-    public function getCacheStats(): array
-    {
-        return [
-            'enum_fields_cached' => count($this->enumValuesCache),
-            'total_enum_values' => array_sum(array_map('count', $this->enumValuesCache))
-        ];
     }
 }
