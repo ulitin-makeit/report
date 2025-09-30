@@ -7,9 +7,9 @@ use Brs\ReportUniversal\Provider\UserFieldsDataProvider;
 use Brs\ReportUniversal\Exception\ReportException;
 
 /**
- * DataProvider для поля "Количество ночей"
+ * DataProvider для поля "Лид"
  */
-class NightsCountDataProvider implements DataProviderInterface
+class LeadDataProvider implements DataProviderInterface
 {
 	/** @var \mysqli Подключение к БД */
 	private \mysqli $connection;
@@ -18,10 +18,10 @@ class NightsCountDataProvider implements DataProviderInterface
 	private array $data = [];
 
 	/** @var string Код поля в Битрикс */
-	private const FIELD_CODE = 'UF_CRM_DEAL_NUMBER_OF_NIGHTS';
+	private const FIELD_CODE = 'UF_CRM_LEAD';
 
 	/** @var string Название колонки в CSV */
-	private const COLUMN_NAME = 'Количество ночей';
+	private const COLUMN_NAME = 'Лид';
 
 	public function __construct(\mysqli $connection)
 	{

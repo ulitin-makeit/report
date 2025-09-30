@@ -1,6 +1,6 @@
 <?php
 
-namespace ReportsModule\Exception;
+namespace Brs\ReportUniversal\Exception;
 
 /**
  * Кастомное исключение для модуля отчетов

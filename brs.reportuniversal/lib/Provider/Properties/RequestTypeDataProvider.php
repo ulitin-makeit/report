@@ -1,65 +1,65 @@
 <?php
 
-namespace ReportsModule\Provider\Properties;
+namespace Brs\ReportUniversal\Provider\Properties;
 
-use ReportsModule\Provider\DataProviderInterface;
-use ReportsModule\Provider\UserFieldsDataProvider;
-use ReportsModule\Exception\ReportException;
+use Brs\ReportUniversal\Provider\DataProviderInterface;
+use Brs\ReportUniversal\Provider\UserFieldsDataProvider;
+use Brs\ReportUniversal\Exception\ReportException;
 
 /**
- * DataProvider для поля "Тип запроса" (UF_S_TYPE)
+ * DataProvider для поля "Тип запроса"
  */
 class RequestTypeDataProvider implements DataProviderInterface
 {
-    /** @var \mysqli Подключение к БД */
-    private \mysqli $connection;
-    
-    /** @var array Данные типов запросов [deal_id => value] */
-    private array $data = [];
-    
-    /** @var string Код поля в Битрикс */
-    private const FIELD_CODE = 'UF_S_TYPE';
-    
-    /** @var string Название колонки в CSV */
-    private const COLUMN_NAME = 'Тип запроса';
+	/** @var \mysqli Подключение к БД */
+	private \mysqli $connection;
 
-    public function __construct(\mysqli $connection)
-    {
-        $this->connection = $connection;
-    }
+	/** @var array Данные типов запросов [deal_id => value] */
+	private array $data = [];
 
-    /**
-     * Предзагружает данные поля
-     */
-    public function preloadData(): void
-    {
-        try {
-            $helper = new UserFieldsDataProvider($this->connection);
-            
-            if ($helper->fieldExists(self::FIELD_CODE)) {
-                $this->data = $helper->loadFieldData(self::FIELD_CODE);
-            }
-            
-        } catch (\Exception $e) {
-            throw new ReportException("Ошибка загрузки данных поля " . self::FIELD_CODE . ": " . $e->getMessage(), 0, $e);
-        }
-    }
+	/** @var string Код поля в Битрикс */
+	private const FIELD_CODE = 'UF_CRM_DEAL_TYPE_CASE';
 
-    /**
-     * Заполняет данными сделку
-     */
-    public function fillDealData(array $dealData, int $dealId): array
-    {
-        return [
-            self::COLUMN_NAME => $this->data[$dealId] ?? ''
-        ];
-    }
+	/** @var string Название колонки в CSV */
+	private const COLUMN_NAME = 'Тип запроса';
 
-    /**
-     * Возвращает названия колонок
-     */
-    public function getColumnNames(): array
-    {
-        return [self::COLUMN_NAME];
-    }
+	public function __construct(\mysqli $connection)
+	{
+		$this->connection = $connection;
+	}
+
+	/**
+	 * Предзагружает данные поля
+	 */
+	public function preloadData(): void
+	{
+		try {
+			$helper = new UserFieldsDataProvider($this->connection);
+
+			if ($helper->fieldExists(self::FIELD_CODE)) {
+				$this->data = $helper->loadFieldData(self::FIELD_CODE);
+			}
+
+		} catch (\Exception $e) {
+			throw new ReportException("Ошибка загрузки данных поля " . self::FIELD_CODE . ": " . $e->getMessage(), 0, $e);
+		}
+	}
+
+	/**
+	 * Заполняет данными сделку
+	 */
+	public function fillDealData(array $dealData, int $dealId): array
+	{
+		return [
+			self::COLUMN_NAME => $this->data[$dealId] ?? ''
+		];
+	}
+
+	/**
+	 * Возвращает названия колонок
+	 */
+	public function getColumnNames(): array
+	{
+		return [self::COLUMN_NAME];
+	}
 }

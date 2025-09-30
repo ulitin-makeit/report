@@ -1,6 +1,6 @@
 <?php
 
-namespace ReportsModule\Provider;
+namespace Brs\ReportUniversal\Provider;
 
 /**
  * Интерфейс для классов предоставления данных сделок

@@ -1,12 +1,12 @@
 <?php
 
-namespace ReportsModule\Provider;
+namespace Brs\ReportUniversal\Provider;
 
-use ReportsModule\Exception\ReportException;
-use ReportsModule\Provider\Helper\UserFieldMetaHelper;
-use ReportsModule\Provider\Helper\EnumFieldHelper;
-use ReportsModule\Provider\Helper\StringFieldHelper;
-use ReportsModule\Provider\Helper\OrmListFindFieldHelper;
+use Brs\ReportUniversal\Exception\ReportException;
+use Brs\ReportUniversal\Provider\Helper\UserFieldMetaHelper;
+use Brs\ReportUniversal\Provider\Helper\EnumFieldHelper;
+use Brs\ReportUniversal\Provider\Helper\StringFieldHelper;
+use Brs\ReportUniversal\Provider\Helper\OrmListFindFieldHelper;
 
 /**
  * Утилитарный класс для загрузки данных пользовательских полей (UF_*)
@@ -15,146 +15,85 @@ use ReportsModule\Provider\Helper\OrmListFindFieldHelper;
  */
 class UserFieldsDataProvider
 {
-    /** @var \mysqli Подключение к БД */
-    private \mysqli $connection;
-    
-    /** @var UserFieldMetaHelper Хелпер для метаданных */
-    private UserFieldMetaHelper $metaHelper;
-    
-    /** @var EnumFieldHelper Хелпер для полей типа список */
-    private EnumFieldHelper $enumHelper;
-    
-    /** @var StringFieldHelper Хелпер для строковых полей */
-    private StringFieldHelper $stringHelper;
-    
-    /** @var OrmListFindFieldHelper Хелпер для полей типа orm_list_find */
-    private OrmListFindFieldHelper $ormHelper;
+	/** @var \mysqli Подключение к БД */
+	private \mysqli $connection;
 
-    public function __construct(\mysqli $connection)
-    {
-        $this->connection = $connection;
-        $this->initHelpers();
-    }
+	/** @var UserFieldMetaHelper Хелпер для метаданных */
+	private UserFieldMetaHelper $metaHelper;
 
-    /**
-     * Инициализирует хелперы
-     */
-    private function initHelpers(): void
-    {
-        $this->metaHelper = new UserFieldMetaHelper($this->connection);
-        $this->enumHelper = new EnumFieldHelper($this->connection);
-        $this->stringHelper = new StringFieldHelper($this->connection);
-        $this->ormHelper = new OrmListFindFieldHelper($this->connection);
-    }
+	/** @var EnumFieldHelper Хелпер для полей типа список */
+	private EnumFieldHelper $enumHelper;
 
-    /**
-     * Загружает данные для указанного UF поля
-     * 
-     * @param string $fieldCode Код поля (например: UF_CRM_CATEGORY)
-     * @return array Ассоциативный массив [deal_id => formatted_value]
-     * @throws ReportException
-     */
-    public function loadFieldData(string $fieldCode): array
-    {
-        // Получаем информацию о поле через метахелпер
-        $fieldInfo = $this->metaHelper->getFieldInfo($fieldCode);
-        
-        if (!$fieldInfo) {
-            return []; // Поле не найдено
-        }
-        
-        // Загружаем данные через соответствующий хелпер
-        try {
-            switch ($fieldInfo['type']) {
-                case 'enumeration':
-                    return $this->enumHelper->loadFieldData($fieldCode, $fieldInfo);
-                    
-                case 'string':
-                case 'integer':
-                case 'datetime':
-                    return $this->stringHelper->loadFieldData($fieldCode, $fieldInfo);
-                    
-                case 'orm_list_find':
-                    return $this->ormHelper->loadFieldData($fieldCode, $fieldInfo);
-                    
-                default:
-                    throw new ReportException("Неподдерживаемый тип поля: " . $fieldInfo['type']);
-            }
-        } catch (\Exception $e) {
-            throw new ReportException("Ошибка загрузки данных поля {$fieldCode}: " . $e->getMessage(), 0, $e);
-        }
-    }
+	/** @var StringFieldHelper Хелпер для строковых полей */
+	private StringFieldHelper $stringHelper;
 
-    /**
-     * Проверяет существование поля
-     * 
-     * @param string $fieldCode Код поля
-     * @return bool
-     */
-    public function fieldExists(string $fieldCode): bool
-    {
-        return $this->metaHelper->fieldExists($fieldCode);
-    }
+	/** @var OrmListFindFieldHelper Хелпер для полей типа orm_list_find */
+	private OrmListFindFieldHelper $ormHelper;
 
-    /**
-     * Возвращает информацию о поле
-     * 
-     * @param string $fieldCode Код поля
-     * @return array|null
-     */
-    public function getFieldInfo(string $fieldCode): ?array
-    {
-        return $this->metaHelper->getFieldInfo($fieldCode);
-    }
+	public function __construct(\mysqli $connection)
+	{
+		$this->connection = $connection;
+		$this->initHelpers();
+	}
 
-    /**
-     * Возвращает список всех UF полей для сделок
-     * 
-     * @param array $supportedTypes Поддерживаемые типы полей
-     * @return array [field_code => field_info]
-     */
-    public function getAllDealFields(array $supportedTypes = ['string', 'enumeration', 'integer', 'datetime', 'orm_list_find']): array
-    {
-        return $this->metaHelper->getAllFieldsForEntity('CRM_DEAL', $supportedTypes);
-    }
+	/**
+	 * Инициализирует хелперы
+	 */
+	private function initHelpers(): void
+	{
+		$this->metaHelper = new UserFieldMetaHelper($this->connection);
+		$this->enumHelper = new EnumFieldHelper($this->connection);
+		$this->stringHelper = new StringFieldHelper($this->connection);
+		$this->ormHelper = new OrmListFindFieldHelper($this->connection);
+	}
 
-    /**
-     * Возвращает метахелпер для прямого использования
-     * 
-     * @return UserFieldMetaHelper
-     */
-    public function getMetaHelper(): UserFieldMetaHelper
-    {
-        return $this->metaHelper;
-    }
+	/**
+	 * Загружает данные для указанного UF поля
+	 *
+	 * @param string $fieldCode Код поля (например: UF_CRM_CATEGORY)
+	 * @return array Ассоциативный массив [deal_id => formatted_value]
+	 * @throws ReportException
+	 */
+	public function loadFieldData(string $fieldCode): array
+	{
+		// Получаем информацию о поле через метахелпер
+		$fieldInfo = $this->metaHelper->getFieldInfo($fieldCode);
 
-    /**
-     * Возвращает хелпер для полей типа список
-     * 
-     * @return EnumFieldHelper
-     */
-    public function getEnumHelper(): EnumFieldHelper
-    {
-        return $this->enumHelper;
-    }
+		if (!$fieldInfo) {
+			return []; // Поле не найдено
+		}
 
-    /**
-     * Возвращает хелпер для строковых полей
-     * 
-     * @return StringFieldHelper
-     */
-    public function getStringHelper(): StringFieldHelper
-    {
-        return $this->stringHelper;
-    }
+		// Загружаем данные через соответствующий хелпер
+		try {
+			switch ($fieldInfo['type']) {
+				case 'enumeration':
+					return $this->enumHelper->loadFieldData($fieldCode, $fieldInfo);
 
-    /**
-     * Возвращает хелпер для полей типа orm_list_find
-     * 
-     * @return OrmListFindFieldHelper
-     */
-    public function getOrmHelper(): OrmListFindFieldHelper
-    {
-        return $this->ormHelper;
-    }
+				case 'string':
+				case 'integer':
+				case 'datetime':
+				case 'date':
+					return $this->stringHelper->loadFieldData($fieldCode, $fieldInfo);
+
+				case 'orm_list_find':
+					return $this->ormHelper->loadFieldData($fieldCode, $fieldInfo);
+
+				default:
+					throw new ReportException("Неподдерживаемый тип поля: " . $fieldInfo['type']);
+			}
+		} catch (\Exception $e) {
+			throw new ReportException("Ошибка загрузки данных поля {$fieldCode}: " . $e->getMessage(), 0, $e);
+		}
+	}
+
+	/**
+	 * Проверяет существование поля
+	 *
+	 * @param string $fieldCode Код поля
+	 * @return bool
+	 */
+	public function fieldExists(string $fieldCode): bool
+	{
+		return $this->metaHelper->fieldExists($fieldCode);
+	}
 }
