@@ -5,8 +5,8 @@ namespace ReportsModule\Provider\Helper;
 use ReportsModule\Exception\ReportException;
 
 /**
- * Хелпер для работы с пользовательскими полями типа "строка" (string) и "число" (integer)
- * Загружает текстовые и числовые значения полей для сделок
+ * Хелпер для работы с пользовательскими полями типа "строка" (string), "число" (integer) и "дата/время" (datetime)
+ * Загружает текстовые, числовые значения и даты для сделок
  */
 class StringFieldHelper
 {
@@ -22,18 +22,18 @@ class StringFieldHelper
     }
 
     /**
-     * Загружает данные для строкового или числового поля
+     * Загружает данные для строкового, числового или datetime поля
      * 
-     * @param string $fieldCode Код поля (например: UF_CRM_COMMENT, UF_CRM_COUNT)
+     * @param string $fieldCode Код поля (например: UF_CRM_COMMENT, UF_CRM_COUNT, UF_CRM_DATE)
      * @param array $fieldInfo Информация о поле из UserFieldMetaHelper
      * @return array Ассоциативный массив [deal_id => value]
      * @throws ReportException При ошибке выполнения SQL запроса
      */
     public function loadFieldData(string $fieldCode, array $fieldInfo): array
     {
-        // Поддерживаем типы string и integer
-        if (!in_array($fieldInfo['type'], ['string', 'integer'])) {
-            throw new ReportException("Неподдерживаемый тип поля: {$fieldInfo['type']}. Ожидается string или integer.");
+        // Поддерживаем типы string, integer и datetime
+        if (!in_array($fieldInfo['type'], ['string', 'integer', 'datetime'])) {
+            throw new ReportException("Неподдерживаемый тип поля: {$fieldInfo['type']}. Ожидается string, integer или datetime.");
         }
         
         if ($fieldInfo['multiple']) {
@@ -124,7 +124,7 @@ class StringFieldHelper
      * Очищает значение для корректного отображения в CSV
      * 
      * @param string $value Исходное значение
-     * @param string $fieldType Тип поля (string или integer)
+     * @param string $fieldType Тип поля (string, integer или datetime)
      * @return string Очищенное значение для записи в CSV
      */
     private function cleanValue(string $value, string $fieldType): string
@@ -144,6 +144,20 @@ class StringFieldHelper
             } else {
                 return '';
             }
+        } elseif ($fieldType === 'datetime') {
+            // Для datetime полей - преобразуем в читаемый формат
+            if (empty($value)) {
+                return '';
+            }
+            
+            // Пытаемся распарсить дату
+            $timestamp = strtotime($value);
+            if ($timestamp === false) {
+                return '';
+            }
+            
+            // Форматируем дату в формат DD.MM.YYYY HH:MM:SS
+            return date('d.m.Y H:i:s', $timestamp);
         } else {
             // Для строковых полей - стандартная очистка
             // Удаляем переносы строк и лишние пробелы

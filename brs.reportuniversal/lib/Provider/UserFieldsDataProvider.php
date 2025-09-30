@@ -71,6 +71,7 @@ class UserFieldsDataProvider
                     
                 case 'string':
                 case 'integer':
+                case 'datetime':
                     return $this->stringHelper->loadFieldData($fieldCode, $fieldInfo);
                     
                 case 'orm_list_find':
@@ -112,7 +113,7 @@ class UserFieldsDataProvider
      * @param array $supportedTypes Поддерживаемые типы полей
      * @return array [field_code => field_info]
      */
-    public function getAllDealFields(array $supportedTypes = ['string', 'enumeration', 'integer', 'orm_list_find']): array
+    public function getAllDealFields(array $supportedTypes = ['string', 'enumeration', 'integer', 'datetime', 'orm_list_find']): array
     {
         return $this->metaHelper->getAllFieldsForEntity('CRM_DEAL', $supportedTypes);
     }
