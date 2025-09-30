@@ -6,6 +6,7 @@ use Brs\ReportUniversal\Exception\ReportException;
 use Brs\ReportUniversal\Provider\Helper\UserFieldMetaHelper;
 use Brs\ReportUniversal\Provider\Helper\EnumFieldHelper;
 use Brs\ReportUniversal\Provider\Helper\StringFieldHelper;
+use Brs\ReportUniversal\Provider\Helper\DateFieldHelper;
 use Brs\ReportUniversal\Provider\Helper\OrmListFindFieldHelper;
 
 /**
@@ -24,8 +25,11 @@ class UserFieldsDataProvider
 	/** @var EnumFieldHelper Хелпер для полей типа список */
 	private EnumFieldHelper $enumHelper;
 
-	/** @var StringFieldHelper Хелпер для строковых полей */
+	/** @var StringFieldHelper Хелпер для строковых и числовых полей */
 	private StringFieldHelper $stringHelper;
+
+	/** @var DateFieldHelper Хелпер для полей типа date и datetime */
+	private DateFieldHelper $dateHelper;
 
 	/** @var OrmListFindFieldHelper Хелпер для полей типа orm_list_find */
 	private OrmListFindFieldHelper $ormHelper;
@@ -44,6 +48,7 @@ class UserFieldsDataProvider
 		$this->metaHelper = new UserFieldMetaHelper($this->connection);
 		$this->enumHelper = new EnumFieldHelper($this->connection);
 		$this->stringHelper = new StringFieldHelper($this->connection);
+		$this->dateHelper = new DateFieldHelper($this->connection);
 		$this->ormHelper = new OrmListFindFieldHelper($this->connection);
 	}
 
@@ -71,9 +76,11 @@ class UserFieldsDataProvider
 
 				case 'string':
 				case 'integer':
-				case 'datetime':
-				case 'date':
 					return $this->stringHelper->loadFieldData($fieldCode, $fieldInfo);
+
+				case 'date':
+				case 'datetime':
+					return $this->dateHelper->loadFieldData($fieldCode, $fieldInfo);
 
 				case 'orm_list_find':
 					return $this->ormHelper->loadFieldData($fieldCode, $fieldInfo);
