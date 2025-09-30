@@ -7,6 +7,7 @@ use Brs\ReportUniversal\Provider\Helper\UserFieldMetaHelper;
 use Brs\ReportUniversal\Provider\Helper\EnumFieldHelper;
 use Brs\ReportUniversal\Provider\Helper\StringFieldHelper;
 use Brs\ReportUniversal\Provider\Helper\DateFieldHelper;
+use Brs\ReportUniversal\Provider\Helper\CrmFieldHelper;
 use Brs\ReportUniversal\Provider\Helper\OrmListFindFieldHelper;
 
 /**
@@ -31,6 +32,9 @@ class UserFieldsDataProvider
 	/** @var DateFieldHelper Хелпер для полей типа date и datetime */
 	private DateFieldHelper $dateHelper;
 
+	/** @var CrmFieldHelper Хелпер для полей типа crm */
+	private CrmFieldHelper $crmHelper;
+
 	/** @var OrmListFindFieldHelper Хелпер для полей типа orm_list_find */
 	private OrmListFindFieldHelper $ormHelper;
 
@@ -49,6 +53,7 @@ class UserFieldsDataProvider
 		$this->enumHelper = new EnumFieldHelper($this->connection);
 		$this->stringHelper = new StringFieldHelper($this->connection);
 		$this->dateHelper = new DateFieldHelper($this->connection);
+		$this->crmHelper = new CrmFieldHelper($this->connection);
 		$this->ormHelper = new OrmListFindFieldHelper($this->connection);
 	}
 
@@ -81,6 +86,9 @@ class UserFieldsDataProvider
 				case 'date':
 				case 'datetime':
 					return $this->dateHelper->loadFieldData($fieldCode, $fieldInfo);
+
+				case 'crm':
+					return $this->crmHelper->loadFieldData($fieldCode, $fieldInfo);
 
 				case 'orm_list_find':
 					return $this->ormHelper->loadFieldData($fieldCode, $fieldInfo);
