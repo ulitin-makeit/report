@@ -6,19 +6,19 @@ use ReportsModule\Provider\DataProviderInterface;
 use ReportsModule\Exception\ReportException;
 
 /**
- * DataProvider для поля "Контакт"
- * Преобразует CONTACT_ID в ФИО контакта из b_crm_contact
+ * DataProvider для поля "Компания"
+ * Преобразует COMPANY_ID в название компании из b_crm_company
  */
-class ClientDataProvider implements DataProviderInterface
+class CompanyDataProvider implements DataProviderInterface
 {
     /** @var \mysqli Подключение к БД */
     private \mysqli $connection;
     
-    /** @var array Данные контактов [contact_id => full_name] */
-    private array $contacts = [];
+    /** @var array Данные компаний [company_id => company_title] */
+    private array $companies = [];
     
     /** @var string Название колонки в CSV */
-    private const COLUMN_NAME = 'Контакт';
+    private const COLUMN_NAME = 'Компания';
 
     /**
      * @param \mysqli $connection Нативное подключение mysqli
@@ -29,7 +29,7 @@ class ClientDataProvider implements DataProviderInterface
     }
 
     /**
-     * Предзагружает данные контактов
+     * Предзагружает данные компаний
      */
     public function preloadData(): void
     {
@@ -37,47 +37,45 @@ class ClientDataProvider implements DataProviderInterface
             $sql = "
                 SELECT 
                     ID, 
-                    CONCAT(LAST_NAME, ' ', NAME, ' ', SECOND_NAME) as FULL_NAME
-                FROM b_crm_contact
+                    TITLE
+                FROM b_crm_company
             ";
             
             $result = mysqli_query($this->connection, $sql);
             if (!$result) {
-                throw new ReportException("Ошибка загрузки контактов: " . mysqli_error($this->connection));
+                throw new ReportException("Ошибка загрузки компаний: " . mysqli_error($this->connection));
             }
             
             while ($row = mysqli_fetch_assoc($result)) {
-                // Убираем лишние пробелы из ФИО
-                $fullName = preg_replace('/\s+/', ' ', trim($row['FULL_NAME']));
-                $this->contacts[(int)$row['ID']] = $fullName;
+                $this->companies[(int)$row['ID']] = trim($row['TITLE']);
             }
             
             mysqli_free_result($result);
             
         } catch (\Exception $e) {
-            throw new ReportException("Ошибка предзагрузки контактов: " . $e->getMessage(), 0, $e);
+            throw new ReportException("Ошибка предзагрузки компаний: " . $e->getMessage(), 0, $e);
         }
     }
 
     /**
      * Заполняет данными сделку
      * 
-     * @param array $dealData Данные сделки (содержит CONTACT_ID)
+     * @param array $dealData Данные сделки (содержит COMPANY_ID)
      * @param int $dealId ID сделки
      * @return array
      */
     public function fillDealData(array $dealData, int $dealId): array
     {
-        $contactId = $dealData['CONTACT_ID'] ?? null;
+        $companyId = $dealData['COMPANY_ID'] ?? null;
         
-        if ($contactId && isset($this->contacts[(int)$contactId])) {
-            $contactName = $this->contacts[(int)$contactId];
+        if ($companyId && isset($this->companies[(int)$companyId])) {
+            $companyTitle = $this->companies[(int)$companyId];
         } else {
-            $contactName = '';
+            $companyTitle = '';
         }
         
         return [
-            self::COLUMN_NAME => $contactName
+            self::COLUMN_NAME => $companyTitle
         ];
     }
 
