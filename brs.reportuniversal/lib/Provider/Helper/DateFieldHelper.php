@@ -36,15 +36,12 @@ class DateFieldHelper
 			throw new ReportException("Неподдерживаемый тип поля: {$fieldInfo['type']}. Ожидается date или datetime.");
 		}
 
-		if ($fieldInfo['multiple']) {
-			return $this->loadMultipleData($fieldCode, $fieldInfo['type']);
-		} else {
-			return $this->loadSingleData($fieldCode, $fieldInfo['type']);
-		}
+		return $this->loadSingleData($fieldCode, $fieldInfo['type']);
 	}
 
 	/**
-	 * Загружает данные для одиночного поля (date или datetime)
+	 * Загружает данные для поля (date или datetime)
+	 * Обрабатывает как обычные значения, так и сериализованные массивы
 	 *
 	 * @param string $fieldCode Код поля
 	 * @param string $fieldType Тип поля (date или datetime)
@@ -68,7 +65,7 @@ class DateFieldHelper
 			if ($value === null || $value === '') {
 				$data[$dealId] = '';
 			} else {
-				$data[$dealId] = $this->formatDate($value, $fieldType);
+				$data[$dealId] = $this->processValue($value, $fieldType);
 			}
 		}
 
@@ -77,49 +74,66 @@ class DateFieldHelper
 	}
 
 	/**
-	 * Загружает данные для множественного поля (date или datetime)
+	 * Обрабатывает значение поля
+	 * Определяет является ли значение сериализованным массивом или обычной датой
 	 *
-	 * @param string $fieldCode Код поля
+	 * @param string $value Исходное значение из БД
 	 * @param string $fieldType Тип поля (date или datetime)
-	 * @return array Ассоциативный массив [deal_id => 'date1, date2, date3']
-	 * @throws ReportException При ошибке выполнения SQL запроса
+	 * @return string Форматированная дата или несколько дат через запятую
 	 */
-	private function loadMultipleData(string $fieldCode, string $fieldType): array
+	private function processValue(string $value, string $fieldType): string
 	{
-		$tableName = "b_uts_crm_deal_" . strtolower($fieldCode);
-		$sql = "SELECT VALUE_ID as DEAL_ID, VALUE as FIELD_VALUE FROM `{$tableName}` ORDER BY VALUE_ID, ID";
-
-		$result = mysqli_query($this->connection, $sql);
-		if (!$result) {
-			// Таблица может не существовать если поле не использовалось
-			return [];
-		}
-
-		$dealValues = [];
-		while ($row = mysqli_fetch_assoc($result)) {
-			$dealId = (int)$row['DEAL_ID'];
-			$value = $row['FIELD_VALUE'];
-
-			if ($value !== null && $value !== '') {
-				if (!isset($dealValues[$dealId])) {
-					$dealValues[$dealId] = [];
+		// Проверяем является ли значение сериализованным массивом
+		if ($this->isSerialized($value)) {
+			$unserialized = @unserialize($value);
+			
+			if (is_array($unserialized)) {
+				// Обрабатываем каждый элемент массива
+				$dates = [];
+				foreach ($unserialized as $dateValue) {
+					if ($dateValue !== null && $dateValue !== '') {
+						$formatted = $this->formatDate((string)$dateValue, $fieldType);
+						if ($formatted !== '') {
+							$dates[] = $formatted;
+						}
+					}
 				}
-				$dealValues[$dealId][] = $this->formatDate($value, $fieldType);
+				
+				// Удаляем дубликаты и сортируем
+				$dates = array_unique($dates);
+				sort($dates);
+				
+				return implode(', ', $dates);
 			}
 		}
+		
+		// Обычное значение даты
+		return $this->formatDate($value, $fieldType);
+	}
 
-		mysqli_free_result($result);
-
-		// Объединяем множественные значения через запятую
-		$data = [];
-		foreach ($dealValues as $dealId => $dates) {
-			$uniqueDates = array_filter(array_unique($dates));
-			// Сортируем даты
-			sort($uniqueDates);
-			$data[$dealId] = implode(', ', $uniqueDates);
+	/**
+	 * Проверяет является ли строка сериализованными данными
+	 *
+	 * @param string $value Проверяемое значение
+	 * @return bool
+	 */
+	private function isSerialized(string $value): bool
+	{
+		// Проверяем типичные паттерны сериализации PHP
+		if ($value === 'b:0;' || $value === 'b:1;') {
+			return true;
 		}
-
-		return $data;
+		
+		if ($value === 'N;') {
+			return true;
+		}
+		
+		// Проверяем паттерны массивов, строк и объектов
+		if (preg_match('/^(a|O|s):\d+:/', $value)) {
+			return true;
+		}
+		
+		return false;
 	}
 
 	/**
