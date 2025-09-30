@@ -36,15 +36,12 @@ class CrmFieldHelper
 			throw new ReportException("Неподдерживаемый тип поля: {$fieldInfo['type']}. Ожидается crm.");
 		}
 
-		if ($fieldInfo['multiple']) {
-			return $this->loadMultipleData($fieldCode);
-		} else {
-			return $this->loadSingleData($fieldCode);
-		}
+		return $this->loadSingleData($fieldCode);
 	}
 
 	/**
-	 * Загружает данные для одиночного поля типа crm
+	 * Загружает данные для поля типа crm
+	 * Обрабатывает как обычные значения, так и сериализованные массивы
 	 *
 	 * @param string $fieldCode Код поля
 	 * @return array Ассоциативный массив [deal_id => crm_value]
@@ -67,7 +64,7 @@ class CrmFieldHelper
 			if ($value === null || $value === '') {
 				$data[$dealId] = '';
 			} else {
-				$data[$dealId] = $this->cleanValue((string)$value);
+				$data[$dealId] = $this->processValue($value);
 			}
 		}
 
@@ -76,46 +73,64 @@ class CrmFieldHelper
 	}
 
 	/**
-	 * Загружает данные для множественного поля типа crm
+	 * Обрабатывает значение поля
+	 * Определяет является ли значение сериализованным массивом или обычным значением
 	 *
-	 * @param string $fieldCode Код поля
-	 * @return array Ассоциативный массив [deal_id => 'value1, value2, value3']
-	 * @throws ReportException При ошибке выполнения SQL запроса
+	 * @param string $value Исходное значение из БД
+	 * @return string Очищенное значение или несколько значений через запятую
 	 */
-	private function loadMultipleData(string $fieldCode): array
+	private function processValue(string $value): string
 	{
-		$tableName = "b_uts_crm_deal_" . strtolower($fieldCode);
-		$sql = "SELECT VALUE_ID as DEAL_ID, VALUE as FIELD_VALUE FROM `{$tableName}` ORDER BY VALUE_ID, ID";
-
-		$result = mysqli_query($this->connection, $sql);
-		if (!$result) {
-			// Таблица может не существовать если поле не использовалось
-			return [];
-		}
-
-		$dealValues = [];
-		while ($row = mysqli_fetch_assoc($result)) {
-			$dealId = (int)$row['DEAL_ID'];
-			$value = $row['FIELD_VALUE'];
-
-			if ($value !== null && $value !== '') {
-				if (!isset($dealValues[$dealId])) {
-					$dealValues[$dealId] = [];
+		// Проверяем является ли значение сериализованным массивом
+		if ($this->isSerialized($value)) {
+			$unserialized = @unserialize($value);
+			
+			if (is_array($unserialized)) {
+				// Обрабатываем каждый элемент массива
+				$values = [];
+				foreach ($unserialized as $crmValue) {
+					if ($crmValue !== null && $crmValue !== '') {
+						$cleaned = $this->cleanValue((string)$crmValue);
+						if ($cleaned !== '') {
+							$values[] = $cleaned;
+						}
+					}
 				}
-				$dealValues[$dealId][] = $this->cleanValue((string)$value);
+				
+				// Удаляем дубликаты
+				$values = array_unique($values);
+				
+				return implode(', ', $values);
 			}
 		}
+		
+		// Обычное значение
+		return $this->cleanValue($value);
+	}
 
-		mysqli_free_result($result);
-
-		// Объединяем множественные значения через запятую
-		$data = [];
-		foreach ($dealValues as $dealId => $values) {
-			$uniqueValues = array_filter(array_unique($values));
-			$data[$dealId] = implode(', ', $uniqueValues);
+	/**
+	 * Проверяет является ли строка сериализованными данными
+	 *
+	 * @param string $value Проверяемое значение
+	 * @return bool
+	 */
+	private function isSerialized(string $value): bool
+	{
+		// Проверяем типичные паттерны сериализации PHP
+		if ($value === 'b:0;' || $value === 'b:1;') {
+			return true;
 		}
-
-		return $data;
+		
+		if ($value === 'N;') {
+			return true;
+		}
+		
+		// Проверяем паттерны массивов, строк и объектов
+		if (preg_match('/^(a|O|s):\d+:/', $value)) {
+			return true;
+		}
+		
+		return false;
 	}
 
 	/**
