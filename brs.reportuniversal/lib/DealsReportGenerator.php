@@ -9,35 +9,91 @@ use ReportsModule\Provider\DataProviderInterface;
 use ReportsModule\Exception\ReportException;
 
 /**
- * Главный класс для генерации отчетов по сделкам
- * Координирует работу всех компонентов модуля
+ * Главный класс для генерации отчетов по сделкам Битрикс24 в формате CSV
+ * 
+ * Координирует работу всех компонентов модуля:
+ * - DealsIterator: выборка сделок из БД по одной записи (небуферизованный режим)
+ * - DataProvider'ы: преобразование ID в читаемые значения (категории, пользователи и т.д.)
+ * - CsvWriter: запись данных в CSV файл с поддержкой кириллицы
+ * 
+ * Архитектура:
+ * 1. Предзагружает все справочные данные (категории, пользователи, статусы)
+ * 2. Итерируется по сделкам по одной
+ * 3. Заполняет каждую сделку данными через provider'ы
+ * 4. Записывает в CSV файл
+ * 
+ * Пример использования:
+ * <code>
+ * $generator = new DealsReportGenerator('/path/to/report.csv');
+ * $generator->generate();
+ * </code>
+ * 
+ * @see DealsIterator Итератор для выборки сделок
+ * @see DataProviderInterface Интерфейс для provider'ов
+ * @see CsvWriter Класс для записи CSV файлов
  */
 class DealsReportGenerator
 {
     /** @var \mysqli Нативное подключение mysqli */
     private \mysqli $nativeConnection;
     
-    /** @var DataProviderInterface[] Массив provider'ов */
+    /** @var DataProviderInterface[] Массив provider'ов (автоматически загружаются из папки Properties) */
     private array $providers = [];
     
-    /** @var array Прямые поля сделки из основной таблицы */
-    private array $directDealFields = [
+    /**
+     * Все поля которые выбираем из таблицы b_crm_deal
+     * Используются в DealsIterator для формирования SELECT запроса
+     * Доступны для чтения в Provider'ах через $dealData
+     * 
+     * Примеры: 'ID', 'TITLE', 'CATEGORY_ID', 'STAGE_ID', 'ASSIGNED_BY_ID'
+     * 
+     * @var array
+     */
+    private array $selectFields = [
         'ID',
-        'TITLE', 
-        'LEAD_ID',
-        'STAGE_ID',
-        'DATE_CREATE',
+        'TITLE',
         'CATEGORY_ID',
+        'STAGE_ID',
         'ASSIGNED_BY_ID',
-        'CONTACT_ID',
         'COMPANY_ID',
+        'CONTACT_ID',
+        'LEAD_ID',
         'PROBABILITY',
         'OPPORTUNITY',
         'CURRENCY_ID',
+        'DATE_CREATE',
         'DATE_MODIFY',
         'OPENED',
         'CLOSED',
         'COMMENTS'
+    ];
+    
+    /**
+     * Маппинг полей которые идут в CSV НАПРЯМУЮ (без обработки provider'ами)
+     * 
+     * Формат: 'Название колонки в CSV' => 'Поле из БД'
+     * 
+     * Примеры:
+     * 'ID' => 'ID'                    - колонка "ID" содержит значение поля ID
+     * 'Название' => 'TITLE'           - колонка "Название" содержит значение поля TITLE
+     * 'Сумма' => 'OPPORTUNITY'        - колонка "Сумма" содержит значение поля OPPORTUNITY
+     * 
+     * Поля которых НЕТ в этом маппинге, но есть в selectFields,
+     * обрабатываются через Provider'ы (например CATEGORY_ID → CategoryDataProvider)
+     * 
+     * @var array
+     */
+    private array $directCsvMapping = [
+        'ID' => 'ID',
+        'Название' => 'TITLE',
+        'Вероятность' => 'PROBABILITY',
+        'Сумма' => 'OPPORTUNITY',
+        'Валюта' => 'CURRENCY_ID',
+        'Дата создания' => 'DATE_CREATE',
+        'Дата изменения' => 'DATE_MODIFY',
+        'Доступна для всех' => 'OPENED',
+        'Закрыта' => 'CLOSED',
+        'Комментарий' => 'COMMENTS'
     ];
     
     /** @var DealsIterator */
@@ -50,15 +106,18 @@ class DealsReportGenerator
     private string $outputFilePath;
 
     /**
-     * @param string $outputFilePath Путь к выходному CSV файлу
-     * @throws ReportException
+     * Конструктор генератора отчетов
+     * 
+     * @param string $outputFilePath Полный путь к выходному CSV файлу (например: /var/www/reports/deals.csv)
+     * @throws ReportException При ошибках подключения к БД или валидации конфигурации
      */
     public function __construct(string $outputFilePath)
     {
         $this->outputFilePath = $outputFilePath;
         $this->initConnection();
+        $this->validateConfiguration();
         $this->loadProviders();
-        $this->dealsIterator = new DealsIterator($this->nativeConnection, $this->directDealFields);
+        $this->dealsIterator = new DealsIterator($this->nativeConnection, $this->selectFields);
         $this->csvWriter = new CsvWriter($outputFilePath);
     }
 
@@ -84,10 +143,46 @@ class DealsReportGenerator
     }
 
     /**
-     * Запускает генерацию отчета
+     * Валидирует конфигурацию перед запуском генерации
+     * 
+     * Проверяет что все поля из directCsvMapping присутствуют в selectFields.
+     * Это гарантирует что мы не пытаемся вывести в CSV поле которое не выбрали из БД.
+     * 
+     * Пример ошибки:
+     * directCsvMapping = ['Регион' => 'REGION_ID']
+     * selectFields = ['ID', 'TITLE'] // REGION_ID отсутствует
+     * → Выбросит ReportException
      * 
      * @return void
-     * @throws ReportException
+     * @throws ReportException Если найдено поле из directCsvMapping отсутствующее в selectFields
+     */
+    private function validateConfiguration(): void
+    {
+        foreach ($this->directCsvMapping as $csvColumn => $dbField) {
+            if (!in_array($dbField, $this->selectFields, true)) {
+                throw new ReportException(
+                    "Поле '{$dbField}' из directCsvMapping (колонка '{$csvColumn}') " .
+                    "отсутствует в selectFields. " .
+                    "Добавьте '{$dbField}' в массив selectFields или удалите из directCsvMapping."
+                );
+            }
+        }
+    }
+
+    /**
+     * Запускает генерацию отчета по сделкам
+     * 
+     * Последовательность выполнения:
+     * 1. Предзагружает данные во всех provider'ах (категории, пользователи, статусы)
+     * 2. Формирует и записывает заголовки CSV (прямые поля + поля от provider'ов)
+     * 3. Итерируется по сделкам из БД по одной записи
+     * 4. Для каждой сделки: заполняет данные через provider'ы и записывает в CSV
+     * 5. Закрывает CSV файл
+     * 
+     * При ошибке обработки конкретной сделки - записывает строку с ERROR и продолжает
+     * 
+     * @return void
+     * @throws ReportException При критических ошибках (БД, файловая система)
      */
     public function generate(): void
     {
@@ -111,10 +206,21 @@ class DealsReportGenerator
     }
 
     /**
-     * Автоматически загружает все provider'ы из папки Provider/Properties
+     * Автоматически загружает все provider'ы из папки Provider/Properties/
+     * 
+     * Сканирует папку и создает экземпляры всех классов с суффиксом *Provider.php
+     * Сортирует по алфавиту для стабильного порядка колонок в CSV
+     * 
+     * Пример структуры:
+     * lib/Provider/Properties/
+     *   ├── CategoryDataProvider.php      → создаст экземпляр
+     *   ├── ClientDataProvider.php        → создаст экземпляр
+     *   └── ResponsibleUserDataProvider.php → создаст экземпляр
+     * 
+     * Порядок provider'ов в CSV = алфавитный порядок имен классов
      * 
      * @return void
-     * @throws ReportException
+     * @throws ReportException Если папка не найдена или ошибка создания экземпляра
      */
     private function loadProviders(): void
     {
@@ -168,7 +274,8 @@ class DealsReportGenerator
      */
     private function buildCsvHeaders(): array
     {
-        $headers = $this->directDealFields;
+        // Сначала прямые колонки из directCsvMapping (ключи - это названия колонок)
+        $headers = array_keys($this->directCsvMapping);
         
         // Добавляем заголовки от provider'ов (уже отсортированы по алфавиту)
         foreach ($this->providers as $provider) {
@@ -208,16 +315,41 @@ class DealsReportGenerator
     /**
      * Заполняет данными сделку через все provider'ы
      * 
-     * @param array $dealData Базовые данные сделки
-     * @return array Полные данные для записи в CSV
+     * Процесс:
+     * 1. Мапит прямые поля из БД в CSV колонки через directCsvMapping
+     *    Пример: 'Название' => $dealData['TITLE']
+     * 
+     * 2. Вызывает fillDealData() у каждого provider'а для получения дополнительных данных
+     *    Пример: CategoryDataProvider вернет ['Категория' => 'Туризм']
+     * 
+     * 3. Объединяет все данные в единый массив для записи в CSV
+     * 
+     * При ошибке в конкретном provider'е - записывает "ERROR" для его колонок,
+     * но продолжает обработку остальных provider'ов
+     * 
+     * @param array $dealData Базовые данные сделки из DealsIterator (содержит все selectFields)
+     * @return array Полный массив данных для записи в CSV с правильными названиями колонок
      */
     private function fillDealData(array $dealData): array
     {
-        $result = $dealData;
+        $result = [];
         
+        // Проверяем наличие ID сделки
+        if (!isset($dealData['ID'])) {
+            throw new ReportException("Отсутствует обязательное поле ID в данных сделки");
+        }
+        
+        $dealId = (int)$dealData['ID'];
+        
+        // Мапим прямые поля по конфигурации
+        foreach ($this->directCsvMapping as $csvColumn => $dbField) {
+            $result[$csvColumn] = $dealData[$dbField] ?? '';
+        }
+        
+        // Добавляем данные от provider'ов
         foreach ($this->providers as $provider) {
             try {
-                $additionalFields = $provider->fillDealData($dealData, (int)$dealData['ID']);
+                $additionalFields = $provider->fillDealData($dealData, $dealId);
                 $result = array_merge($result, $additionalFields);
             } catch (\Exception $e) {
                 // При ошибке в provider'е добавляем ERROR для его полей
@@ -234,14 +366,23 @@ class DealsReportGenerator
     /**
      * Создает строку с ошибками для проблемной сделки
      * 
-     * @param array $dealData Базовые данные сделки
-     * @return array
+     * Используется когда возникла критическая ошибка при обработке сделки.
+     * Пытается сохранить базовые данные (ID, название), но для остальных полей
+     * записывает "ERROR"
+     * 
+     * @param array $dealData Базовые данные сделки (может быть неполным)
+     * @return array Массив данных для записи в CSV со значением ERROR для проблемных полей
      */
     private function buildErrorRow(array $dealData): array
     {
-        $errorRow = $dealData;
+        $errorRow = [];
         
-        // Заполняем поля provider'ов значением ERROR
+        // Пытаемся заполнить прямые поля (если данные есть)
+        foreach ($this->directCsvMapping as $csvColumn => $dbField) {
+            $errorRow[$csvColumn] = $dealData[$dbField] ?? 'ERROR';
+        }
+        
+        // Все поля provider'ов помечаем как ERROR
         foreach ($this->providers as $provider) {
             $columnNames = $provider->getColumnNames();
             foreach ($columnNames as $columnName) {
@@ -250,25 +391,5 @@ class DealsReportGenerator
         }
         
         return $errorRow;
-    }
-
-    /**
-     * Возвращает количество загруженных provider'ов
-     * 
-     * @return int
-     */
-    public function getProvidersCount(): int
-    {
-        return count($this->providers);
-    }
-    
-    /**
-     * Возвращает нативное mysqli соединение
-     * 
-     * @return \mysqli
-     */
-    public function getNativeConnection(): \mysqli
-    {
-        return $this->nativeConnection;
     }
 }
