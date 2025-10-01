@@ -7,15 +7,14 @@ use Brs\ReportUniversal\Exception\ReportException;
 
 /**
  * DataProvider для поля "% участия агента в продаже"
+ * Загружает данные о процентах участия агентов в сделках из инфоблока
  */
 class AgentParticipationPercentDataProvider implements DataProviderInterface
 {
 	/** @var \mysqli Подключение к БД */
 	private \mysqli $connection;
 
-	/**
-	 * @var array<int, string|null> Кэш данных
-	 */
+	/** @var array Кэш данных [deal_id => [['USER' => 'ФИО', 'PERCENT' => '50'], ...]] */
 	private array $data = [];
 
 	/** @var string Название колонки в CSV */
@@ -29,48 +28,71 @@ class AgentParticipationPercentDataProvider implements DataProviderInterface
 		$this->connection = $connection;
 	}
 
-	/** Предзагружает данные */
+	/**
+	 * Предзагружает данные о пользователях и их участии в сделках
+	 */
 	public function preloadData(): void
 	{
 		try {
-			$allUsers = [];
+			// Загружаем всех пользователей (для преобразования ID в ФИО)
+			$allUsers = $this->loadAllUsers();
 
-// Делаем выборку с помощью ORM D7
-			$result = \Bitrix\Main\UserTable::getList([
-				'select' => ['ID', 'NAME', 'LAST_NAME', 'SECOND_NAME'],
-				'filter' => [],
-				'order' => []
-			]);
-
-// Перебираем результат
-			while ($user = $result->fetch()) {
-				// Собираем полное ФИО
-				$fullName = trim($user['LAST_NAME'] . ' ' . $user['NAME'] . ' ' . $user['SECOND_NAME']);
-
-				$allUsers[$user['ID']] = $fullName;
-			}
-
-
-
-			$agents = \CIblockElement::GetList(
-				[],
-				['=IBLOCK_ID' => PARTICIPATION_AGENT_IBLOCK_ID],
-				false,
-				false,
-				['ID', 'PROPERTY_AGENT', 'PROPERTY_DEAL', 'PROPERTY_PERCENT_PARTICIPATION']
-			);
-
-			// обходим всех агентов
-			while ($agent = $agents->Fetch()) {
-				$this->data[$agent['PROPERTY_DEAL_VALUE']][] = [
-					'USER' => $allUsers[$agent['PROPERTY_AGENT_VALUE']],
-					'PERCENT' => $agent['PROPERTY_PERCENT_PARTICIPATION_VALUE']
-				];
-			}
-
+			// Загружаем данные об участии агентов в сделках
+			$this->loadAgentParticipation($allUsers);
 
 		} catch (\Exception $e) {
-			throw new ReportException("Ошибка предзагрузки данных по цепочкам отелей: " . $e->getMessage(), 0, $e);
+			throw new ReportException("Ошибка предзагрузки данных об участии агентов: " . $e->getMessage(), 0, $e);
+		}
+	}
+
+	/**
+	 * Загружает всех пользователей системы
+	 *
+	 * @return array [user_id => full_name]
+	 */
+	private function loadAllUsers(): array
+	{
+		$allUsers = [];
+
+		$result = \Bitrix\Main\UserTable::getList([
+			'select' => ['ID', 'NAME', 'LAST_NAME', 'SECOND_NAME'],
+			'filter' => [],
+			'order' => []
+		]);
+
+		while ($user = $result->fetch()) {
+			$fullName = trim($user['LAST_NAME'] . ' ' . $user['NAME'] . ' ' . $user['SECOND_NAME']);
+			$allUsers[$user['ID']] = $fullName;
+		}
+
+		return $allUsers;
+	}
+
+	/**
+	 * Загружает данные об участии агентов в сделках из инфоблока
+	 *
+	 * @param array $allUsers Массив пользователей [user_id => full_name]
+	 * @return void
+	 */
+	private function loadAgentParticipation(array $allUsers): void
+	{
+		$agents = \CIblockElement::GetList(
+			[],
+			['=IBLOCK_ID' => PARTICIPATION_AGENT_IBLOCK_ID],
+			false,
+			false,
+			['ID', 'PROPERTY_AGENT', 'PROPERTY_DEAL', 'PROPERTY_PERCENT_PARTICIPATION']
+		);
+
+		while ($agent = $agents->Fetch()) {
+			$dealId = $agent['PROPERTY_DEAL_VALUE'];
+			$agentId = $agent['PROPERTY_AGENT_VALUE'];
+			$percent = $agent['PROPERTY_PERCENT_PARTICIPATION_VALUE'];
+
+			$this->data[$dealId][] = [
+				'USER' => $allUsers[$agentId] ?? '',
+				'PERCENT' => $percent
+			];
 		}
 	}
 
@@ -83,16 +105,18 @@ class AgentParticipationPercentDataProvider implements DataProviderInterface
 	 */
 	public function fillDealData(array $dealData, int $dealId): array
 	{
-		$agents = $this->data[$dealId];
-
 		$result = '';
-		
-		if ($agents) {
-			foreach ($agents as $agent) {
-				$result .= $agent['USER'] . '=' . $agent['PERCENT'] . '%';
+
+		if (isset($this->data[$dealId]) && !empty($this->data[$dealId])) {
+			$agentStrings = [];
+
+			foreach ($this->data[$dealId] as $agent) {
+				$agentStrings[] = $agent['USER'] . '=' . $agent['PERCENT'] . '%';
 			}
+
+			$result = implode(', ', $agentStrings);
 		}
-		
+
 		return [
 			self::COLUMN_NAME => $result
 		];
@@ -105,4 +129,4 @@ class AgentParticipationPercentDataProvider implements DataProviderInterface
 	{
 		return [self::COLUMN_NAME];
 	}
-} 
+}
