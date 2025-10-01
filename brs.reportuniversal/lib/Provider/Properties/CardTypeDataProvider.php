@@ -49,14 +49,14 @@ class CardTypeDataProvider implements DataProviderInterface
 	}
 
 	/**
-	 * Загружает справочник типов карт из таблицы brs_card_type
+	 * Загружает справочник типов карт из таблицы brs_cards
 	 *
 	 * @return void
 	 * @throws ReportException
 	 */
 	private function loadCardTypes(): void
 	{
-		$sql = "SELECT ID, NAME FROM brs_card_type";
+		$sql = "SELECT ID, TYPE FROM brs_cards";
 
 		$result = mysqli_query($this->connection, $sql);
 		if (!$result) {
@@ -64,7 +64,7 @@ class CardTypeDataProvider implements DataProviderInterface
 		}
 
 		while ($row = mysqli_fetch_assoc($result)) {
-			$this->cardTypes[(int)$row['ID']] = trim($row['NAME']);
+			$this->cardTypes[(int)$row['ID']] = trim($row['TYPE']);
 		}
 
 		mysqli_free_result($result);
