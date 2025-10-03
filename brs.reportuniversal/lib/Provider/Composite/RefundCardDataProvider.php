@@ -2,8 +2,8 @@
 
 namespace Brs\ReportUniversal\Provider\Composite;
 
-use Brs\ReportUniversal\Provider\DataProviderInterface;
 use Brs\ReportUniversal\Exception\ReportException;
+use Brs\RefundCard\Models\RefundCardTable;
 
 /**
  * Composite DataProvider для карт возврата
@@ -11,24 +11,21 @@ use Brs\ReportUniversal\Exception\ReportException;
  * Загружает данные из таблицы:
  * - brs_refund_card (связь через DEAL_ID)
  * 
- * Возвращает фиксированный набор колонок с префиксом:
- * - RC_* - поля из brs_refund_card
- * 
- * Всегда возвращает одинаковый набор колонок (пустые строки если данных нет)
+ * Данные загружаются в момент запроса fillDealData для каждой сделки
  */
-class RefundCardDataProvider implements DataProviderInterface
+class RefundCardDataProvider
 {
-	/** @var \mysqli Подключение к БД */
+	/** @var \mysqli Подключение к БД (для совместимости) */
 	private \mysqli $connection;
 
-	/** @var array Данные по сделкам [deal_id => [...все поля с префиксом RC_...]] */
-	private array $dealData = [];
-
-	/** @var array Названия всех колонок (заполняется при первой загрузке) */
-	private array $columnNames = [];
+	/** @var array Список колонок из RefundCardTable */
+	private const REFUND_COLUMNS = [
+		'Курс' => 'CURRENCY',
+		'Валюта сделки' => 'ID'
+	];
 
 	/**
-	 * @param \mysqli $connection Нативное подключение mysqli
+	 * @param \mysqli $connection Нативное подключение mysqli (для совместимости)
 	 */
 	public function __construct(\mysqli $connection)
 	{
@@ -36,172 +33,95 @@ class RefundCardDataProvider implements DataProviderInterface
 	}
 
 	/**
-	 * Предзагружает данные карт возврата
+	 * Заглушка для совместимости с DealsReportGenerator
+	 * Предзагрузка не используется, данные загружаются по требованию
 	 */
 	public function preloadData(): void
 	{
-		try {
-			$this->loadRefundCardData();
-
-		} catch (\Exception $e) {
-			throw new ReportException("Ошибка предзагрузки данных карт возврата: " . $e->getMessage(), 0, $e);
-		}
-	}
-
-	/**
-	 * Загружает данные из brs_refund_card
-	 * 
-	 * @return void
-	 * @throws ReportException
-	 */
-	private function loadRefundCardData(): void
-	{
-		// Получаем список колонок из таблицы
-		$rcColumns = $this->getTableColumns('brs_refund_card', ['DEAL_ID']); // DEAL_ID используем для связи
-
-		// Формируем SELECT с префиксом RC_
-		$selectParts = [];
-		foreach ($rcColumns as $column) {
-			$selectParts[] = "rc.`{$column}` AS RC_{$column}";
-		}
-
-		$selectClause = implode(",\n\t\t\t", $selectParts);
-
-		$sql = "
-			SELECT 
-				rc.DEAL_ID,
-				{$selectClause}
-			FROM brs_refund_card rc
-		";
-
-		$result = mysqli_query($this->connection, $sql);
-		if (!$result) {
-			throw new ReportException("Ошибка загрузки карт возврата: " . mysqli_error($this->connection));
-		}
-
-		// Получаем названия колонок из результата
-		if (empty($this->columnNames) && $result->field_count > 0) {
-			$fields = mysqli_fetch_fields($result);
-			foreach ($fields as $field) {
-				$columnName = $field->name;
-				// Пропускаем служебное поле DEAL_ID
-				if ($columnName !== 'DEAL_ID') {
-					$this->columnNames[] = $columnName;
-				}
-			}
-		}
-
-		// Загружаем данные
-		while ($row = mysqli_fetch_assoc($result)) {
-			$dealId = (int)$row['DEAL_ID'];
-
-			// Сохраняем все поля с префиксом RC_ (кроме DEAL_ID)
-			$data = [];
-			foreach ($row as $key => $value) {
-				if ($key !== 'DEAL_ID') {
-					$data[$key] = $value ?? '';
-				}
-			}
-
-			$this->dealData[$dealId] = $data;
-		}
-
-		mysqli_free_result($result);
-
-		// Если нет данных вообще, нужно всё равно получить названия колонок
-		if (empty($this->columnNames)) {
-			$this->initializeEmptyColumnNames($rcColumns);
-		}
-	}
-
-	/**
-	 * Получает список колонок таблицы
-	 * 
-	 * @param string $tableName Имя таблицы
-	 * @param array $excludeColumns Колонки которые нужно исключить
-	 * @return array Массив названий колонок
-	 * @throws ReportException
-	 */
-	private function getTableColumns(string $tableName, array $excludeColumns = []): array
-	{
-		$sql = "SHOW COLUMNS FROM `{$tableName}`";
-		$result = mysqli_query($this->connection, $sql);
-
-		if (!$result) {
-			throw new ReportException("Ошибка получения колонок таблицы {$tableName}: " . mysqli_error($this->connection));
-		}
-
-		$columns = [];
-		while ($row = mysqli_fetch_assoc($result)) {
-			$columnName = $row['Field'];
-			if (!in_array($columnName, $excludeColumns, true)) {
-				$columns[] = $columnName;
-			}
-		}
-
-		mysqli_free_result($result);
-		return $columns;
-	}
-
-	/**
-	 * Инициализирует названия колонок если данных в таблице нет
-	 * 
-	 * @param array $rcColumns Колонки из brs_refund_card
-	 * @return void
-	 */
-	private function initializeEmptyColumnNames(array $rcColumns): void
-	{
-		// Формируем названия колонок с префиксом RC_
-		foreach ($rcColumns as $column) {
-			$this->columnNames[] = 'RC_' . $column;
-		}
+		// Ничего не делаем - загрузка происходит в fillDealData
 	}
 
 	/**
 	 * Возвращает названия всех колонок
 	 * 
-	 * Формат: RC_* (refund_card)
-	 * 
 	 * @return array
 	 */
 	public function getColumnNames(): array
 	{
-		if (empty($this->columnNames)) {
-			throw new ReportException("Колонки карт возврата не были загружены. Вызовите preloadData() сначала.");
-		}
-
-		return $this->columnNames;
+		return array_keys(self::REFUND_COLUMNS);
 	}
 
 	/**
 	 * Заполняет данными сделку
-	 * 
-	 * Возвращает все колонки (пустые строки если данных нет)
+	 * Загружает данные из БД через ORM в момент вызова
 	 * 
 	 * @param array $dealData Данные сделки
 	 * @param int $dealId ID сделки
 	 * @return array Массив с колонками карт возврата
+	 * @throws ReportException При ошибке загрузки данных
 	 */
 	public function fillDealData(array $dealData, int $dealId): array
 	{
 		$result = [];
 
 		// Инициализируем все колонки пустыми значениями
-		foreach ($this->columnNames as $columnName) {
+		foreach ($this->getColumnNames() as $columnName) {
 			$result[$columnName] = '';
 		}
 
-		// Если есть данные для этой сделки - заполняем
-		if (isset($this->dealData[$dealId])) {
-			$data = $this->dealData[$dealId];
+		try {
+			// Формируем список полей для выборки
+			$selectFields = array_values(self::REFUND_COLUMNS);
 
-			foreach ($data as $key => $value) {
-				if (isset($result[$key])) {
-					$result[$key] = $value;
-				}
+			// Загружаем карту возврата по DEAL_ID
+			$refundCard = RefundCardTable::getList([
+				'filter' => ['=DEAL_ID' => $dealId],
+				'select' => $selectFields,
+				'limit' => 1
+			])->fetch();
+
+			if (!$refundCard) {
+				// Нет карты возврата для этой сделки
+				return $result;
 			}
+
+			// Заполняем результат
+			foreach (self::REFUND_COLUMNS as $columnName => $fieldCode) {
+				$value = $refundCard[$fieldCode] ?? '';
+				
+				// Форматируем значение для CSV
+				$result[$columnName] = $this->formatValue($value);
+			}
+
+		} catch (\Exception $e) {
+			throw new ReportException(
+				"Ошибка загрузки данных карты возврата для сделки {$dealId}: " . $e->getMessage(),
+				0,
+				$e
+			);
 		}
 
 		return $result;
+	}
+
+	/**
+	 * Форматирует значение для записи в CSV
+	 * 
+	 * @param mixed $value Исходное значение
+	 * @return string Отформатированное значение
+	 */
+	private function formatValue($value): string
+	{
+		if ($value === null || $value === '') {
+			return '';
+		}
+
+		// Преобразуем в строку
+		$stringValue = (string)$value;
+
+		// Удаляем лишние пробелы
+		$stringValue = trim($stringValue);
+
+		return $stringValue;
 	}
 }
