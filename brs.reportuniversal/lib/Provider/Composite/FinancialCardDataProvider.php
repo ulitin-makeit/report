@@ -8,26 +8,57 @@ use Brs\ReportUniversal\Exception\ReportException;
 /**
  * Composite DataProvider для финансовых карт и их цен
  * 
- * Загружает данные из двух связанных таблиц:
- * - brs_financial_card (связь через DEAL_ID)
- * - brs_financial_card_price (связь через FINANCIAL_CARD_PRICE_ID)
+ * Загружает данные из двух таблиц БЕЗ JOIN (отдельными запросами):
+ * - brs_financial_card (SCHEME_WORK, FINANCIAL_CARD_PRICE_ID)
+ * - brs_financial_card_price (все финансовые поля)
  * 
- * Возвращает фиксированный набор колонок с префиксами:
- * - FC_* - поля из brs_financial_card
- * - FCP_* - поля из brs_financial_card_price
- * 
- * Всегда возвращает одинаковый набор колонок (пустые строки если данных нет)
+ * Возвращает фиксированный набор колонок с финансовыми данными
  */
 class FinancialCardDataProvider implements DataProviderInterface
 {
 	/** @var \mysqli Подключение к БД */
 	private \mysqli $connection;
 
-	/** @var array Данные по сделкам [deal_id => [...все поля с префиксами...]] */
-	private array $dealData = [];
+	/** @var array Финансовые карты [deal_id => ['FINANCIAL_CARD_PRICE_ID' => X, 'SCHEME_WORK' => 'value']] */
+	private array $financialCards = [];
 
-	/** @var array Названия всех колонок (заполняется при первой загрузке) */
-	private array $columnNames = [];
+	/** @var array Цены финансовых карт [price_id => [...поля...]] */
+	private array $prices = [];
+
+	/**
+	 * Маппинг полей из brs_financial_card_price
+	 * Формат: 'Название колонки в CSV' => 'FIELD_NAME'
+	 */
+	private const PRICE_FIELDS_MAPPING = [
+		'Курс оплаты' => 'CURRENCY_RATE',
+		'Валюта сделки' => 'CURRENCY_ID',
+		'Сумма по счету Поставщика (НЕТТО)' => 'SUPPLIER_NET',
+		'Сумма по счету Поставщика (НЕТТО) в валюте' => 'SUPPLIER_NET_CURRENCY',
+		'Дополнительная выгода' => 'ADDITIONAL_BENEFIT',
+		'Дополнительная выгода в валюте' => 'ADDITIONAL_BENEFIT_CURRENCY',
+		'Сбор поставщика' => 'SUPPLIER',
+		'Сбор поставщика в валюте' => 'SUPPLIER_CURRENCY',
+		'Сервисный сбор' => 'SERVICE',
+		'Сервисный сбор в валюте' => 'SERVICE_CURRENCY',
+		'Комиссия' => 'COMMISSION',
+		'Комиссия в Валюте' => 'COMMISSION_CURRENCY',
+		'Всего к оплате Поставщику' => 'SUPPLIER_TOTAL_PAID',
+		'Всего к оплате Поставщику в валюте' => 'SUPPLIER_TOTAL_PAID_CURRENCY',
+		'Всего к оплате Клиентом' => 'RESULT',
+		'Всего к оплате Клиентом валюта' => 'RESULT_CURRENCY',
+	];
+
+	/**
+	 * Маппинг значений SCHEME_WORK
+	 * Формат: 'db_value' => 'Отображаемое значение'
+	 */
+	private const SCHEME_WORK_MAPPING = [
+		'BUYER_AGENT' => 'Агент покупателя',
+		'SR_SUPPLIER_AGENT' => 'Агент Поставщика SR',
+		'LR_SUPPLIER_AGENT' => 'Агент Поставщика LR',
+		'PROVISION_SERVICES' => 'Оказание услуг',
+		'RS_TLS_SERVICE_FEE' => 'Сервисный сбор РС ТЛС',
+	];
 
 	/**
 	 * @param \mysqli $connection Нативное подключение mysqli
@@ -38,12 +69,16 @@ class FinancialCardDataProvider implements DataProviderInterface
 	}
 
 	/**
-	 * Предзагружает данные финансовых карт с ценами
+	 * Предзагружает данные финансовых карт и цен (БЕЗ JOIN)
 	 */
 	public function preloadData(): void
 	{
 		try {
-			$this->loadFinancialCardData();
+			// Шаг 1: Загружаем финансовые карты
+			$this->loadFinancialCards();
+
+			// Шаг 2: Загружаем цены
+			$this->loadPrices();
 
 		} catch (\Exception $e) {
 			throw new ReportException("Ошибка предзагрузки данных финансовых карт: " . $e->getMessage(), 0, $e);
@@ -51,39 +86,19 @@ class FinancialCardDataProvider implements DataProviderInterface
 	}
 
 	/**
-	 * Загружает данные из brs_financial_card + brs_financial_card_price
+	 * Загружает данные из brs_financial_card
 	 * 
 	 * @return void
 	 * @throws ReportException
 	 */
-	private function loadFinancialCardData(): void
+	private function loadFinancialCards(): void
 	{
-		// Получаем список колонок из каждой таблицы
-		$fcColumns = $this->getTableColumns('brs_financial_card', ['DEAL_ID']); // DEAL_ID используем для связи
-		$fcpColumns = $this->getTableColumns('brs_financial_card_price', ['ID']); // ID не нужен (дубль)
-
-		// Формируем SELECT с префиксами
-		$selectParts = [];
-
-		// Поля из brs_financial_card с префиксом FC_
-		foreach ($fcColumns as $column) {
-			$selectParts[] = "fc.`{$column}` AS FC_{$column}";
-		}
-
-		// Поля из brs_financial_card_price с префиксом FCP_
-		foreach ($fcpColumns as $column) {
-			$selectParts[] = "fcp.`{$column}` AS FCP_{$column}";
-		}
-
-		$selectClause = implode(",\n\t\t\t", $selectParts);
-
 		$sql = "
 			SELECT 
-				fc.DEAL_ID,
-				{$selectClause}
-			FROM brs_financial_card fc
-			LEFT JOIN brs_financial_card_price fcp 
-				ON fc.FINANCIAL_CARD_PRICE_ID = fcp.ID
+				DEAL_ID,
+				FINANCIAL_CARD_PRICE_ID,
+				SCHEME_WORK
+			FROM brs_financial_card
 		";
 
 		$result = mysqli_query($this->connection, $sql);
@@ -91,108 +106,75 @@ class FinancialCardDataProvider implements DataProviderInterface
 			throw new ReportException("Ошибка загрузки финансовых карт: " . mysqli_error($this->connection));
 		}
 
-		// Получаем названия колонок из результата
-		if (empty($this->columnNames) && $result->field_count > 0) {
-			$fields = mysqli_fetch_fields($result);
-			foreach ($fields as $field) {
-				$columnName = $field->name;
-				// Пропускаем служебное поле DEAL_ID
-				if ($columnName !== 'DEAL_ID') {
-					$this->columnNames[] = $columnName;
-				}
-			}
-		}
-
-		// Загружаем данные
 		while ($row = mysqli_fetch_assoc($result)) {
 			$dealId = (int)$row['DEAL_ID'];
 
-			// Сохраняем все поля с префиксами (кроме DEAL_ID)
-			$data = [];
-			foreach ($row as $key => $value) {
-				if ($key !== 'DEAL_ID') {
-					$data[$key] = $value ?? '';
-				}
-			}
-
-			$this->dealData[$dealId] = $data;
+			$this->financialCards[$dealId] = [
+				'FINANCIAL_CARD_PRICE_ID' => $row['FINANCIAL_CARD_PRICE_ID'] ? (int)$row['FINANCIAL_CARD_PRICE_ID'] : null,
+				'SCHEME_WORK' => $row['SCHEME_WORK'] ?? '',
+			];
 		}
 
 		mysqli_free_result($result);
-
-		// Если нет данных вообще, нужно всё равно получить названия колонок
-		if (empty($this->columnNames)) {
-			$this->initializeEmptyColumnNames($fcColumns, $fcpColumns);
-		}
 	}
 
 	/**
-	 * Получает список колонок таблицы
+	 * Загружает данные из brs_financial_card_price
 	 * 
-	 * @param string $tableName Имя таблицы
-	 * @param array $excludeColumns Колонки которые нужно исключить
-	 * @return array Массив названий колонок
+	 * @return void
 	 * @throws ReportException
 	 */
-	private function getTableColumns(string $tableName, array $excludeColumns = []): array
+	private function loadPrices(): void
 	{
-		$sql = "SHOW COLUMNS FROM `{$tableName}`";
-		$result = mysqli_query($this->connection, $sql);
+		// Формируем список полей для SELECT
+		$fields = array_values(self::PRICE_FIELDS_MAPPING);
+		$fieldsStr = '`' . implode('`, `', $fields) . '`';
 
+		$sql = "
+			SELECT 
+				ID,
+				{$fieldsStr}
+			FROM brs_financial_card_price
+		";
+
+		$result = mysqli_query($this->connection, $sql);
 		if (!$result) {
-			throw new ReportException("Ошибка получения колонок таблицы {$tableName}: " . mysqli_error($this->connection));
+			throw new ReportException("Ошибка загрузки цен финансовых карт: " . mysqli_error($this->connection));
 		}
 
-		$columns = [];
 		while ($row = mysqli_fetch_assoc($result)) {
-			$columnName = $row['Field'];
-			if (!in_array($columnName, $excludeColumns, true)) {
-				$columns[] = $columnName;
+			$priceId = (int)$row['ID'];
+
+			// Сохраняем все поля кроме ID
+			$data = [];
+			foreach (self::PRICE_FIELDS_MAPPING as $fieldName) {
+				$data[$fieldName] = $row[$fieldName] ?? '';
 			}
+
+			$this->prices[$priceId] = $data;
 		}
 
 		mysqli_free_result($result);
-		return $columns;
-	}
-
-	/**
-	 * Инициализирует названия колонок если данных в таблицах нет
-	 * 
-	 * @param array $fcColumns Колонки из brs_financial_card
-	 * @param array $fcpColumns Колонки из brs_financial_card_price
-	 * @return void
-	 */
-	private function initializeEmptyColumnNames(array $fcColumns, array $fcpColumns): void
-	{
-		// Формируем названия колонок с префиксами
-		foreach ($fcColumns as $column) {
-			$this->columnNames[] = 'FC_' . $column;
-		}
-		foreach ($fcpColumns as $column) {
-			$this->columnNames[] = 'FCP_' . $column;
-		}
 	}
 
 	/**
 	 * Возвращает названия всех колонок
 	 * 
-	 * Формат: FC_* (financial_card), FCP_* (price)
-	 * 
 	 * @return array
 	 */
 	public function getColumnNames(): array
 	{
-		if (empty($this->columnNames)) {
-			throw new ReportException("Колонки финансовых карт не были загружены. Вызовите preloadData() сначала.");
-		}
+		// Сначала колонка со схемой работы
+		$columns = ['Схема финансовой карты'];
 
-		return $this->columnNames;
+		// Затем все колонки из price таблицы
+		$columns = array_merge($columns, array_keys(self::PRICE_FIELDS_MAPPING));
+
+		return $columns;
 	}
 
 	/**
 	 * Заполняет данными сделку
-	 * 
-	 * Возвращает все колонки (пустые строки если данных нет)
 	 * 
 	 * @param array $dealData Данные сделки
 	 * @param int $dealId ID сделки
@@ -203,21 +185,49 @@ class FinancialCardDataProvider implements DataProviderInterface
 		$result = [];
 
 		// Инициализируем все колонки пустыми значениями
-		foreach ($this->columnNames as $columnName) {
+		foreach ($this->getColumnNames() as $columnName) {
 			$result[$columnName] = '';
 		}
 
-		// Если есть данные для этой сделки - заполняем
-		if (isset($this->dealData[$dealId])) {
-			$data = $this->dealData[$dealId];
+		// Проверяем есть ли финансовая карта для этой сделки
+		if (!isset($this->financialCards[$dealId])) {
+			return $result;
+		}
 
-			foreach ($data as $key => $value) {
-				if (isset($result[$key])) {
-					$result[$key] = $value;
+		$financialCard = $this->financialCards[$dealId];
+
+		// Заполняем схему работы
+		$schemeWork = $financialCard['SCHEME_WORK'];
+		$result['Схема финансовой карты'] = $this->mapSchemeWork($schemeWork);
+
+		// Заполняем данные из price таблицы
+		$priceId = $financialCard['FINANCIAL_CARD_PRICE_ID'];
+		if ($priceId && isset($this->prices[$priceId])) {
+			$priceData = $this->prices[$priceId];
+
+			// Заполняем каждое поле
+			foreach (self::PRICE_FIELDS_MAPPING as $csvColumn => $dbField) {
+				if (isset($priceData[$dbField])) {
+					$result[$csvColumn] = $priceData[$dbField];
 				}
 			}
 		}
 
 		return $result;
+	}
+
+	/**
+	 * Преобразует значение SCHEME_WORK в читаемый вид
+	 * 
+	 * @param string $schemeWork Значение из БД
+	 * @return string Отображаемое значение
+	 */
+	private function mapSchemeWork(string $schemeWork): string
+	{
+		if ($schemeWork === '' || $schemeWork === null) {
+			return '';
+		}
+
+		return self::SCHEME_WORK_MAPPING[$schemeWork] ?? $schemeWork;
 	}
 }
