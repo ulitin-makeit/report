@@ -8,15 +8,18 @@ use Brs\RefundCard\Models\RefundCardTable;
 /**
  * Composite DataProvider для карт возврата
  * 
- * Загружает данные из таблицы:
- * - brs_refund_card (связь через DEAL_ID)
- * 
- * Данные загружаются в момент запроса fillDealData для каждой сделки
+ * Загружает данные из таблицы с ПРЕДЗАГРУЗКОЙ
  */
 class RefundCardDataProvider
 {
 	/** @var \mysqli Подключение к БД (для совместимости) */
 	private \mysqli $connection;
+
+	/** @var array Предзагруженные данные [deal_id => [...поля...]] */
+	private array $dealData = [];
+
+	/** @var array Названия колонок */
+	private array $columnNames = [];
 
 	/** @var array Список колонок из RefundCardTable */
 	private const REFUND_COLUMNS = [
@@ -24,81 +27,83 @@ class RefundCardDataProvider
 		'Валюта сделки' => 'ID'
 	];
 
-	/**
-	 * @param \mysqli $connection Нативное подключение mysqli (для совместимости)
-	 */
 	public function __construct(\mysqli $connection)
 	{
 		$this->connection = $connection;
+		$this->initColumnNames();
 	}
 
 	/**
-	 * Заглушка для совместимости с DealsReportGenerator
-	 * Предзагрузка не используется, данные загружаются по требованию
+	 * Инициализирует названия колонок
+	 */
+	private function initColumnNames(): void
+	{
+		$this->columnNames = array_keys(self::REFUND_COLUMNS);
+	}
+
+	/**
+	 * ПРЕДЗАГРУЗКА: загружает ВСЕ карты возврата ОДИН РАЗ
 	 */
 	public function preloadData(): void
 	{
-		// Ничего не делаем - загрузка происходит в fillDealData
-	}
-
-	/**
-	 * Возвращает названия всех колонок
-	 * 
-	 * @return array
-	 */
-	public function getColumnNames(): array
-	{
-		return array_keys(self::REFUND_COLUMNS);
-	}
-
-	/**
-	 * Заполняет данными сделку
-	 * Загружает данные из БД через ORM в момент вызова
-	 * 
-	 * @param array $dealData Данные сделки
-	 * @param int $dealId ID сделки
-	 * @return array Массив с колонками карт возврата
-	 * @throws ReportException При ошибке загрузки данных
-	 */
-	public function fillDealData(array $dealData, int $dealId): array
-	{
-		$result = [];
-
-		// Инициализируем все колонки пустыми значениями
-		foreach ($this->getColumnNames() as $columnName) {
-			$result[$columnName] = '';
-		}
-
 		try {
-			// Формируем список полей для выборки
 			$selectFields = array_values(self::REFUND_COLUMNS);
+			$selectFields[] = 'DEAL_ID'; // Добавляем для индексации
 
-			// Загружаем карту возврата по DEAL_ID
-			$refundCard = RefundCardTable::getList([
-				'filter' => ['=DEAL_ID' => $dealId],
+			$refundCards = RefundCardTable::getList([
 				'select' => $selectFields,
-				'limit' => 1
-			])->fetch();
+				'order' => ['DEAL_ID' => 'ASC']
+			])->fetchAll();
 
-			if (!$refundCard) {
-				// Нет карты возврата для этой сделки
-				return $result;
-			}
+			foreach ($refundCards as $card) {
+				$dealId = (int)$card['DEAL_ID'];
+				$result = [];
 
-			// Заполняем результат
-			foreach (self::REFUND_COLUMNS as $columnName => $fieldCode) {
-				$value = $refundCard[$fieldCode] ?? '';
-				
-				// Форматируем значение для CSV
-				$result[$columnName] = $this->formatValue($value);
+				// Инициализируем все колонки
+				foreach ($this->columnNames as $columnName) {
+					$result[$columnName] = '';
+				}
+
+				// Заполняем данными
+				foreach (self::REFUND_COLUMNS as $columnName => $fieldCode) {
+					$value = $card[$fieldCode] ?? '';
+					$result[$columnName] = $this->formatValue($value);
+				}
+
+				$this->dealData[$dealId] = $result;
 			}
 
 		} catch (\Exception $e) {
 			throw new ReportException(
-				"Ошибка загрузки данных карты возврата для сделки {$dealId}: " . $e->getMessage(),
+				"Ошибка предзагрузки данных карт возврата: " . $e->getMessage(),
 				0,
 				$e
 			);
+		}
+	}
+
+	/**
+	 * Возвращает названия всех колонок
+	 */
+	public function getColumnNames(): array
+	{
+		return $this->columnNames;
+	}
+
+	/**
+	 * Заполняет данными сделку (берёт из предзагруженного массива)
+	 */
+	public function fillDealData(array $dealData, int $dealId): array
+	{
+		// Инициализируем пустыми значениями
+		$result = [];
+		foreach ($this->columnNames as $columnName) {
+			$result[$columnName] = '';
+		}
+
+		// Если есть предзагруженные данные - возвращаем их
+		if (isset($this->dealData[$dealId])) {
+			return $this->dealData[$dealId];
 		}
 
 		return $result;
@@ -106,9 +111,6 @@ class RefundCardDataProvider
 
 	/**
 	 * Форматирует значение для записи в CSV
-	 * 
-	 * @param mixed $value Исходное значение
-	 * @return string Отформатированное значение
 	 */
 	private function formatValue($value): string
 	{
@@ -116,12 +118,6 @@ class RefundCardDataProvider
 			return '';
 		}
 
-		// Преобразуем в строку
-		$stringValue = (string)$value;
-
-		// Удаляем лишние пробелы
-		$stringValue = trim($stringValue);
-
-		return $stringValue;
+		return trim((string)$value);
 	}
 }
