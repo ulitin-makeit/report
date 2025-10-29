@@ -6,10 +6,10 @@ use Brs\ReportUniversal\Provider\DataProviderInterface;
 use Brs\ReportUniversal\Exception\ReportException;
 
 /**
- * DataProvider для поля "Гости"
- * Преобразует сериализованные ID гостей из UF_BRS_CRM_DEAL_GUESTS в имена из таблицы brs_guests
+ * DataProvider для поля "Путешественники"
+ * Преобразует сериализованные ID Путешественники из UF_BRS_CRM_DEAL_GUESTS в имена из таблицы brs_guests
  */
-class GuestsDataProvider implements DataProviderInterface
+class TravelersDataProvider implements DataProviderInterface
 {
 	/** @var \mysqli Подключение к БД */
 	private \mysqli $connection;
@@ -24,7 +24,7 @@ class GuestsDataProvider implements DataProviderInterface
 	private const FIELD_CODE = 'UF_BRS_CRM_DEAL_GUESTS';
 
 	/** @var string Название колонки в CSV */
-	private const COLUMN_NAME = 'Гости';
+	private const COLUMN_NAME = 'Путешественники';
 
 	/**
 	 * @param \mysqli $connection Нативное подключение mysqli

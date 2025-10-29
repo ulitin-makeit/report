@@ -3,11 +3,11 @@
 namespace Brs\ReportUniversal\Provider\Composite;
 
 use Brs\ReportUniversal\Exception\ReportException;
-use Brs\RefundCard\Models\RefundCardTable;
+use Brs\FinancialCard\Models\RefundCardTable;
 
 /**
  * Composite DataProvider для карт возврата
- * 
+ *
  * Загружает данные из таблицы с ПРЕДЗАГРУЗКОЙ
  */
 class RefundCardDataProvider
@@ -23,8 +23,25 @@ class RefundCardDataProvider
 
 	/** @var array Список колонок из RefundCardTable */
 	private const REFUND_COLUMNS = [
-		'Курс' => 'CURRENCY',
-		'Валюта сделки' => 'ID'
+		'Сумма возврата клиенту' => 'SUM_REFUND_RUB',
+		'Сумма возврата поставщиком' => 'SUPPLIER_GROSS_RETURN',
+		'Сумма возврата поставщиком в валюте' => 'SUPPLIER_GROSS_RETURN_CURRENCY',
+		'Возврат комиссии поставщика' => 'SUPPLIER_COMMISSION_RETURN',
+		'Возврат комиссии поставщика в валюте' => 'SUPPLIER_COMMISSION_RETURN_CURRENCY',
+		'Возврат клиенту сбора поставщика' => 'SUPPLIER_RETURN',
+		'Возврат клиенту сбора поставщика в валюте' => 'SUPPLIER_RETURN_CURRENCY',
+		'Возврат клиенту сбора РС ТЛС' => 'RS_TLS_FEE',
+		'Возврат клиенту сбора РС ТЛС в валюте' => 'RS_TLS_FEE_CURRENCY',
+		'Возврат клиенту дополнительной выгоды' => 'COMMISSION_RETURN',
+		'Возврат клиенту дополнительной выгоды в валюте' => 'COMMISSION_RETURN_CURRENCY',
+		'Сбор поставщика за возврат' => 'SUPPLIER_FEE',
+		'Сбор поставщика за возврат в валюте' => 'SUPPLIER_FEE_CURRENCY',
+		'Штраф поставщика за возврат' => 'SUPPLIER_PENALTY',
+		'Штраф поставщика за возврат в валюте' => 'SUPPLIER_PENALTY_CURRENCY',
+		'Сбор РС ТЛС за возврат' => 'PRODUCT',
+		'Сбор РС ТЛС за возврат в валюте' => 'PRODUCT_CURRENCY',
+		'Штраф РС ТЛС за возврат' => 'CLIENT_PENALTY',
+		'Штраф РС ТЛС за возврат в валюте' => 'CLIENT_PENALTY_CURRENCY'
 	];
 
 	public function __construct(\mysqli $connection)

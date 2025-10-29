@@ -31,8 +31,8 @@ class StringFieldHelper
 	 */
 	public function loadFieldData(string $fieldCode, array $fieldInfo): array
 	{
-		// Поддерживаем только типы string и integer
-		if (!in_array($fieldInfo['type'], ['string', 'integer'], true)) {
+		// Поддерживаем типы string и integer
+		if (!in_array($fieldInfo['type'], ['string', 'integer'])) {
 			throw new ReportException("Неподдерживаемый тип поля: {$fieldInfo['type']}. Ожидается string или integer.");
 		}
 

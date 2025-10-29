@@ -37,10 +37,8 @@ class DealStatusDataProvider implements DataProviderInterface
 			$sql = "
                 SELECT 
                     STATUS_ID, 
-                    NAME, 
-                    SORT
+                    NAME
                 FROM b_crm_status 
-                ORDER BY SORT, NAME
             ";
 
 			$result = mysqli_query($this->connection, $sql);

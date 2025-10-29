@@ -124,7 +124,14 @@ class CsvWriter
 			return $value ? 'да' : 'нет';
 		}
 
-		$stringValue = (string)$value;
+		// Если это числовое значение (int, float или числовая строка),
+		// и в его строковом представлении есть точка, заменяем ее на запятую.
+		// Это обеспечит корректное распознавание дробных чисел в Excel.
+		if (is_numeric($value) && strpos((string)$value, '.') !== false) {
+			$stringValue = str_replace('.', ',', (string)$value);
+		} else {
+			$stringValue = (string)$value;
+		}
 
 		// Удаляем переносы строк и лишние пробелы
 		$stringValue = preg_replace('/\s+/', ' ', $stringValue);

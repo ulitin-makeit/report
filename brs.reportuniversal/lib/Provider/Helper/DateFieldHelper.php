@@ -86,7 +86,7 @@ class DateFieldHelper
 		// Проверяем является ли значение сериализованным массивом
 		if ($this->isSerialized($value)) {
 			$unserialized = @unserialize($value);
-			
+
 			if (is_array($unserialized)) {
 				// Обрабатываем каждый элемент массива
 				$dates = [];
@@ -98,15 +98,15 @@ class DateFieldHelper
 						}
 					}
 				}
-				
+
 				// Удаляем дубликаты и сортируем
 				$dates = array_unique($dates);
 				sort($dates);
-				
+
 				return implode(', ', $dates);
 			}
 		}
-		
+
 		// Обычное значение даты
 		return $this->formatDate($value, $fieldType);
 	}
@@ -123,16 +123,16 @@ class DateFieldHelper
 		if ($value === 'b:0;' || $value === 'b:1;') {
 			return true;
 		}
-		
+
 		if ($value === 'N;') {
 			return true;
 		}
-		
+
 		// Проверяем паттерны массивов, строк и объектов
 		if (preg_match('/^(a|O|s):\d+:/', $value)) {
 			return true;
 		}
-		
+
 		return false;
 	}
 

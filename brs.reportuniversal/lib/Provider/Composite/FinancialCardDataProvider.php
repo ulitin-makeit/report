@@ -8,7 +8,7 @@ use Brs\FinancialCard\Models\FinancialCardPriceTable;
 
 /**
  * Composite DataProvider для финансовых карт и их цен
- * 
+ *
  * Загружает данные из двух связанных таблиц через ORM с ПРЕДЗАГРУЗКОЙ
  */
 class FinancialCardDataProvider
@@ -37,8 +37,8 @@ class FinancialCardDataProvider
 		'Валюта сделки' => 'CURRENCY_ID',
 		'Сумма по счету Поставщика (НЕТТО)' => 'SUPPLIER_NET',
 		'Сумма по счету Поставщика (НЕТТО) в валюте' => 'SUPPLIER_NET_CURRENCY',
-		'Дополнительная выгода' => 'ADDITIONAL_BENEFIT',
-		'Дополнительная выгода в валюте' => 'ADDITIONAL_BENEFIT_CURRENCY',
+		'Дополнительная выгода' => 'COMMISSION',
+		'Дополнительная выгода в валюте' => 'COMMISSION_CURRENCY',
 		'Сбор поставщика' => 'SUPPLIER',
 		'Сбор поставщика в валюте' => 'SUPPLIER_CURRENCY',
 		'Сервисный сбор' => 'SERVICE',
@@ -76,23 +76,22 @@ class FinancialCardDataProvider
 		try {
 			// ШАГ 1: Загружаем все финансовые карты
 			$financialCards = FinancialCardTable::getList([
-				'select' => ['ID', 'DEAL_ID', 'SCHEME_WORK', 'FINANCIAL_CARD_PRICE_ID'],
-				'order' => ['DEAL_ID' => 'ASC']
+				'select' => ['ID', 'DEAL_ID', 'SCHEME_WORK', 'FINANCIAL_CARD_PRICE_ID']
 			])->fetchAll();
 
 			// Собираем ID прайсов для батч-загрузки
 			$priceIds = [];
 			$cardsByDeal = [];
-			
+
 			foreach ($financialCards as $card) {
 				$dealId = (int)$card['DEAL_ID'];
 				$priceId = (int)($card['FINANCIAL_CARD_PRICE_ID'] ?? 0);
-				
+
 				$cardsByDeal[$dealId] = [
 					'SCHEME_WORK' => $card['SCHEME_WORK'] ?? '',
 					'PRICE_ID' => $priceId
 				];
-				
+
 				if ($priceId > 0) {
 					$priceIds[] = $priceId;
 				}
@@ -103,9 +102,9 @@ class FinancialCardDataProvider
 			if (!empty($priceIds)) {
 				$selectFields = array_values(self::PRICE_COLUMNS);
 				$selectFields[] = 'ID'; // Добавляем ID для индексации
-				
+
 				$prices = FinancialCardPriceTable::getList([
-					'filter' => ['@ID' => array_unique($priceIds)],
+					'filter' => ['ID' => array_unique($priceIds)],
 					'select' => $selectFields
 				])->fetchAll();
 
@@ -117,7 +116,7 @@ class FinancialCardDataProvider
 			// ШАГ 3: Формируем итоговый массив данных
 			foreach ($cardsByDeal as $dealId => $cardData) {
 				$result = [];
-				
+
 				// Инициализируем все колонки пустыми значениями
 				foreach ($this->columnNames as $columnName) {
 					$result[$columnName] = '';
@@ -131,7 +130,7 @@ class FinancialCardDataProvider
 				$priceId = $cardData['PRICE_ID'];
 				if ($priceId > 0 && isset($pricesData[$priceId])) {
 					$priceData = $pricesData[$priceId];
-					
+
 					foreach (self::PRICE_COLUMNS as $columnName => $fieldCode) {
 						$value = $priceData[$fieldCode] ?? '';
 						$result[$columnName] = $this->formatValue($value);

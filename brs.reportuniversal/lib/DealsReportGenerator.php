@@ -177,7 +177,7 @@ class DealsReportGenerator
 
 	/**
 	 * Загружает предустановленные Composite provider'ы
-	 * 
+	 *
 	 * В отличие от Properties, здесь список провайдеров фиксированный
 	 */
 	private function loadCompositeProviders(): void

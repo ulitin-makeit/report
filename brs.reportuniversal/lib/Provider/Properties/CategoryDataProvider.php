@@ -34,7 +34,7 @@ class CategoryDataProvider implements DataProviderInterface
 	public function preloadData(): void
 	{
 		try {
-			$sql = "SELECT ID, NAME FROM b_crm_deal_category ORDER BY SORT, NAME";
+			$sql = "SELECT ID, NAME FROM b_crm_deal_category";
 
 			$result = mysqli_query($this->connection, $sql);
 			if (!$result) {

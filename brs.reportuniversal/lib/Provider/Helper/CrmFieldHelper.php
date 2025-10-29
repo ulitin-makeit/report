@@ -84,7 +84,7 @@ class CrmFieldHelper
 		// Проверяем является ли значение сериализованным массивом
 		if ($this->isSerialized($value)) {
 			$unserialized = @unserialize($value);
-			
+
 			if (is_array($unserialized)) {
 				// Обрабатываем каждый элемент массива
 				$values = [];
@@ -96,14 +96,14 @@ class CrmFieldHelper
 						}
 					}
 				}
-				
+
 				// Удаляем дубликаты
 				$values = array_unique($values);
-				
+
 				return implode(', ', $values);
 			}
 		}
-		
+
 		// Обычное значение
 		return $this->cleanValue($value);
 	}
@@ -120,16 +120,16 @@ class CrmFieldHelper
 		if ($value === 'b:0;' || $value === 'b:1;') {
 			return true;
 		}
-		
+
 		if ($value === 'N;') {
 			return true;
 		}
-		
+
 		// Проверяем паттерны массивов, строк и объектов
 		if (preg_match('/^(a|O|s):\d+:/', $value)) {
 			return true;
 		}
-		
+
 		return false;
 	}
 

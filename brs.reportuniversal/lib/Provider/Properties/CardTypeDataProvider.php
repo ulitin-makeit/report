@@ -105,7 +105,7 @@ class CardTypeDataProvider implements DataProviderInterface
 
 		while ($row = mysqli_fetch_assoc($result)) {
 			$dealId = (int)$row['DEAL_ID'];
-			
+
 			$this->transactions[$dealId] = [
 				'PAYMENT_BY_LINK' => (int)$row['PAYMENT_BY_LINK'],
 				'PAYMENT_BY_POINT' => (int)$row['PAYMENT_BY_POINT'],

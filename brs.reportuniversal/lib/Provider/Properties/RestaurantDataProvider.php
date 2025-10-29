@@ -78,4 +78,4 @@ class RestaurantDataProvider implements DataProviderInterface
 	{
 		return [self::COLUMN_NAME];
 	}
-} 
+}

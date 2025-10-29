@@ -120,11 +120,11 @@ class ClientTypeDataProvider implements DataProviderInterface
 
 		if ($contactId) {
 			$contactIdInt = (int)$contactId;
-			
+
 			// Получаем TYPE_ID для контакта
 			if (isset($this->contactTypeMapping[$contactIdInt])) {
 				$typeId = $this->contactTypeMapping[$contactIdInt];
-				
+
 				// Получаем название типа
 				if (isset($this->contactTypes[$typeId])) {
 					$typeName = $this->contactTypes[$typeId];
