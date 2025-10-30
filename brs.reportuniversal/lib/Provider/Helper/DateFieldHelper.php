@@ -138,10 +138,11 @@ class DateFieldHelper
 
 	/**
 	 * Форматирует дату для отображения в CSV
+	 * Всегда возвращает только дату без времени
 	 *
 	 * @param string $value Исходное значение даты из БД
 	 * @param string $fieldType Тип поля (date или datetime)
-	 * @return string Форматированная дата
+	 * @return string Форматированная дата в формате DD.MM.YYYY
 	 */
 	private function formatDate(string $value, string $fieldType): string
 	{
@@ -153,13 +154,7 @@ class DateFieldHelper
 			return trim($value);
 		}
 
-		// Форматируем в зависимости от типа поля
-		if ($fieldType === 'datetime') {
-			// Для datetime: "DD.MM.YYYY HH:MM:SS"
-			return date('d.m.Y H:i:s', $timestamp);
-		} else {
-			// Для date: "DD.MM.YYYY"
-			return date('d.m.Y', $timestamp);
-		}
+		// Всегда форматируем только дату: "DD.MM.YYYY"
+		return date('d.m.Y', $timestamp);
 	}
 }
