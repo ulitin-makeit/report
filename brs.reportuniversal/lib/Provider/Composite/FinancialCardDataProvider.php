@@ -34,6 +34,9 @@ class FinancialCardDataProvider
 	/** @var string Схема работы "Оказание услуг" */
 	private const SCHEME_PROVISION_SERVICES = 'PROVISION_SERVICES';
 
+	/** @var string Схема работы "Агент Поставщика SR" */
+	private const SCHEME_SR_SUPPLIER_AGENT = 'SR_SUPPLIER_AGENT';
+
 	/** @var array Список колонок из FinancialCardPriceTable */
 	private const PRICE_COLUMNS = [
 		'Курс оплаты' => 'CURRENCY_RATE',
@@ -66,6 +69,12 @@ class FinancialCardDataProvider
 	/** @var string Название колонки "Комиссия в Валюте" */
 	private const COLUMN_COMMISSION_CURRENCY = 'Комиссия в Валюте';
 
+	/** @var string Название колонки "Всего к оплате Поставщику" */
+	private const COLUMN_SUPPLIER_TOTAL_PAID = 'Всего к оплате Поставщику';
+
+	/** @var string Название колонки "Всего к оплате Поставщику в валюте" */
+	private const COLUMN_SUPPLIER_TOTAL_PAID_CURRENCY = 'Всего к оплате Поставщику в валюте';
+
 	public function __construct(\mysqli $connection)
 	{
 		$this->connection = $connection;
@@ -91,7 +100,7 @@ class FinancialCardDataProvider
 		try {
 			// ШАГ 1: Загружаем все финансовые карты
 			$financialCards = FinancialCardTable::getList([
-				'select' => ['ID', 'DEAL_ID', 'SCHEME_WORK', 'FINANCIAL_CARD_PRICE_ID']
+				'select' => ['ID', 'DEAL_ID', 'SCHEME_WORK', 'FINANCIAL_CARD_PRICE_ID', 'SUPPLIER_COMMISSION']
 			])->fetchAll();
 
 			// Собираем ID прайсов для батч-загрузки
@@ -104,7 +113,8 @@ class FinancialCardDataProvider
 
 				$cardsByDeal[$dealId] = [
 					'SCHEME_WORK' => $card['SCHEME_WORK'] ?? '',
-					'PRICE_ID' => $priceId
+					'PRICE_ID' => $priceId,
+					'SUPPLIER_COMMISSION' => $card['SUPPLIER_COMMISSION'] ?? null
 				];
 
 				if ($priceId > 0) {
@@ -144,6 +154,8 @@ class FinancialCardDataProvider
 
 		$selectFields = array_values(self::PRICE_COLUMNS);
 		$selectFields[] = 'ID'; // Добавляем ID для индексации
+		$selectFields[] = 'SUPPLIER_GROSS'; // Добавляем БРУТТО
+		$selectFields[] = 'SUPPLIER_GROSS_CURRENCY'; // Добавляем БРУТТО в валюте
 
 		$prices = FinancialCardPriceTable::getList([
 			'filter' => ['ID' => array_unique($priceIds)],
@@ -161,7 +173,7 @@ class FinancialCardDataProvider
 	/**
 	 * Формирует результирующий массив данных для одной сделки
 	 *
-	 * @param array $cardData Данные карты (SCHEME_WORK, PRICE_ID)
+	 * @param array $cardData Данные карты (SCHEME_WORK, PRICE_ID, SUPPLIER_COMMISSION)
 	 * @param array $pricesData Предзагруженные данные прайсов
 	 * @return array Массив данных для записи в CSV
 	 */
@@ -179,6 +191,11 @@ class FinancialCardDataProvider
 		if ($priceId > 0 && isset($pricesData[$priceId])) {
 			$this->fillPriceData($result, $pricesData[$priceId]);
 			$this->applySchemeWorkLogic($result, $schemeWork);
+			
+			// Применяем логику для схемы SR_SUPPLIER_AGENT
+			if ($this->isSRSupplierAgentScheme($schemeWork)) {
+				$this->applySRSupplierAgentLogic($result, $cardData, $pricesData[$priceId]);
+			}
 		}
 
 		return $result;
@@ -234,6 +251,52 @@ class FinancialCardDataProvider
 	}
 
 	/**
+	 * Применяет логику расчёта "Всего к оплате Поставщику" для схемы SR_SUPPLIER_AGENT
+	 *
+	 * Бизнес-правило:
+	 * - Если SUPPLIER_COMMISSION = 1 (ДА):
+	 *   "Всего к оплате Поставщику" = "Сумма по счету Поставщика (БРУТТО)" + "Сбор поставщика"
+	 * - Если SUPPLIER_COMMISSION != 1 (НЕТ):
+	 *   "Всего к оплате Поставщику" = "Сумма по счету Поставщика (НЕТТО)" + "Сбор поставщика"
+	 *
+	 * @param array &$result Массив данных сделки
+	 * @param array $cardData Данные карты
+	 * @param array $priceData Данные прайса
+	 * @return void
+	 */
+	private function applySRSupplierAgentLogic(array &$result, array $cardData, array $priceData): void
+	{
+		$supplierCommission = $cardData['SUPPLIER_COMMISSION'];
+		
+		// Проверяем, является ли SUPPLIER_COMMISSION равным 1 (как int или string)
+		$isWithCommission = ($supplierCommission === 1 || $supplierCommission === '1');
+
+		// Получаем сбор поставщика
+		$supplierFee = (float)($priceData['SUPPLIER'] ?? 0);
+		$supplierFeeCurrency = (float)($priceData['SUPPLIER_CURRENCY'] ?? 0);
+
+		if ($isWithCommission) {
+			// С комиссией: БРУТТО + Сбор поставщика
+			$supplierGross = (float)($priceData['SUPPLIER_GROSS'] ?? 0);
+			$supplierGrossCurrency = (float)($priceData['SUPPLIER_GROSS_CURRENCY'] ?? 0);
+			
+			$totalRub = round($supplierGross + $supplierFee, 2);
+			$totalCurrency = round($supplierGrossCurrency + $supplierFeeCurrency, 2);
+		} else {
+			// Без комиссии: НЕТТО + Сбор поставщика
+			$supplierNet = (float)($priceData['SUPPLIER_NET'] ?? 0);
+			$supplierNetCurrency = (float)($priceData['SUPPLIER_NET_CURRENCY'] ?? 0);
+			
+			$totalRub = round($supplierNet + $supplierFee, 2);
+			$totalCurrency = round($supplierNetCurrency + $supplierFeeCurrency, 2);
+		}
+
+		// Перезаписываем значения "Всего к оплате Поставщику"
+		$result[self::COLUMN_SUPPLIER_TOTAL_PAID] = $this->formatValue($totalRub);
+		$result[self::COLUMN_SUPPLIER_TOTAL_PAID_CURRENCY] = $this->formatValue($totalCurrency);
+	}
+
+	/**
 	 * Проверяет, является ли схема работы "Оказание услуг"
 	 *
 	 * @param string $schemeWork Код схемы работы
@@ -242,6 +305,17 @@ class FinancialCardDataProvider
 	private function isProvisionServicesScheme(string $schemeWork): bool
 	{
 		return $schemeWork === self::SCHEME_PROVISION_SERVICES;
+	}
+
+	/**
+	 * Проверяет, является ли схема работы "Агент Поставщика SR"
+	 *
+	 * @param string $schemeWork Код схемы работы
+	 * @return bool
+	 */
+	private function isSRSupplierAgentScheme(string $schemeWork): bool
+	{
+		return $schemeWork === self::SCHEME_SR_SUPPLIER_AGENT;
 	}
 
 	/**
