@@ -31,6 +31,9 @@ class FinancialCardDataProvider
 		'RS_TLS_SERVICE_FEE' => 'Сервисный сбор РС ТЛС'
 	];
 
+	/** @var string Схема работы "Оказание услуг" */
+	private const SCHEME_PROVISION_SERVICES = 'PROVISION_SERVICES';
+
 	/** @var array Список колонок из FinancialCardPriceTable */
 	private const PRICE_COLUMNS = [
 		'Курс оплаты' => 'CURRENCY_RATE',
@@ -50,6 +53,18 @@ class FinancialCardDataProvider
 		'Всего к оплате Клиентом' => 'RESULT',
 		'Всего к оплате Клиентом валюта' => 'RESULT_CURRENCY'
 	];
+
+	/** @var string Название колонки "Дополнительная выгода" */
+	private const COLUMN_ADDITIONAL_BENEFIT = 'Дополнительная выгода';
+
+	/** @var string Название колонки "Дополнительная выгода в валюте" */
+	private const COLUMN_ADDITIONAL_BENEFIT_CURRENCY = 'Дополнительная выгода в валюте';
+
+	/** @var string Название колонки "Комиссия" */
+	private const COLUMN_COMMISSION = 'Комиссия';
+
+	/** @var string Название колонки "Комиссия в Валюте" */
+	private const COLUMN_COMMISSION_CURRENCY = 'Комиссия в Валюте';
 
 	public function __construct(\mysqli $connection)
 	{
@@ -98,45 +113,11 @@ class FinancialCardDataProvider
 			}
 
 			// ШАГ 2: Загружаем все прайсы ОДНИМ запросом
-			$pricesData = [];
-			if (!empty($priceIds)) {
-				$selectFields = array_values(self::PRICE_COLUMNS);
-				$selectFields[] = 'ID'; // Добавляем ID для индексации
-
-				$prices = FinancialCardPriceTable::getList([
-					'filter' => ['ID' => array_unique($priceIds)],
-					'select' => $selectFields
-				])->fetchAll();
-
-				foreach ($prices as $price) {
-					$pricesData[(int)$price['ID']] = $price;
-				}
-			}
+			$pricesData = $this->loadPrices($priceIds);
 
 			// ШАГ 3: Формируем итоговый массив данных
 			foreach ($cardsByDeal as $dealId => $cardData) {
-				$result = [];
-
-				// Инициализируем все колонки пустыми значениями
-				foreach ($this->columnNames as $columnName) {
-					$result[$columnName] = '';
-				}
-
-				// Заполняем схему работы
-				$schemeWork = $cardData['SCHEME_WORK'];
-				$result['Схема финансовой карты'] = self::SCHEME_WORK_MAP[$schemeWork] ?? $schemeWork;
-
-				// Заполняем данные прайса
-				$priceId = $cardData['PRICE_ID'];
-				if ($priceId > 0 && isset($pricesData[$priceId])) {
-					$priceData = $pricesData[$priceId];
-
-					foreach (self::PRICE_COLUMNS as $columnName => $fieldCode) {
-						$value = $priceData[$fieldCode] ?? '';
-						$result[$columnName] = $this->formatValue($value);
-					}
-				}
-
+				$result = $this->buildDealResult($cardData, $pricesData);
 				$this->dealData[$dealId] = $result;
 			}
 
@@ -147,6 +128,144 @@ class FinancialCardDataProvider
 				$e
 			);
 		}
+	}
+
+	/**
+	 * Загружает данные прайсов по списку ID
+	 *
+	 * @param array $priceIds Массив ID прайсов
+	 * @return array Ассоциативный массив [price_id => price_data]
+	 */
+	private function loadPrices(array $priceIds): array
+	{
+		if (empty($priceIds)) {
+			return [];
+		}
+
+		$selectFields = array_values(self::PRICE_COLUMNS);
+		$selectFields[] = 'ID'; // Добавляем ID для индексации
+
+		$prices = FinancialCardPriceTable::getList([
+			'filter' => ['ID' => array_unique($priceIds)],
+			'select' => $selectFields
+		])->fetchAll();
+
+		$pricesData = [];
+		foreach ($prices as $price) {
+			$pricesData[(int)$price['ID']] = $price;
+		}
+
+		return $pricesData;
+	}
+
+	/**
+	 * Формирует результирующий массив данных для одной сделки
+	 *
+	 * @param array $cardData Данные карты (SCHEME_WORK, PRICE_ID)
+	 * @param array $pricesData Предзагруженные данные прайсов
+	 * @return array Массив данных для записи в CSV
+	 */
+	private function buildDealResult(array $cardData, array $pricesData): array
+	{
+		// Инициализируем все колонки пустыми значениями
+		$result = $this->initializeEmptyResult();
+
+		// Заполняем схему работы
+		$schemeWork = $cardData['SCHEME_WORK'];
+		$result['Схема финансовой карты'] = self::SCHEME_WORK_MAP[$schemeWork] ?? $schemeWork;
+
+		// Заполняем данные прайса
+		$priceId = $cardData['PRICE_ID'];
+		if ($priceId > 0 && isset($pricesData[$priceId])) {
+			$this->fillPriceData($result, $pricesData[$priceId]);
+			$this->applySchemeWorkLogic($result, $schemeWork);
+		}
+
+		return $result;
+	}
+
+	/**
+	 * Инициализирует пустой массив результата
+	 *
+	 * @return array
+	 */
+	private function initializeEmptyResult(): array
+	{
+		$result = [];
+		foreach ($this->columnNames as $columnName) {
+			$result[$columnName] = '';
+		}
+		return $result;
+	}
+
+	/**
+	 * Заполняет результат данными из прайса
+	 *
+	 * @param array &$result Массив результата
+	 * @param array $priceData Данные прайса
+	 * @return void
+	 */
+	private function fillPriceData(array &$result, array $priceData): void
+	{
+		foreach (self::PRICE_COLUMNS as $columnName => $fieldCode) {
+			$value = $priceData[$fieldCode] ?? '';
+			$result[$columnName] = $this->formatValue($value);
+		}
+	}
+
+	/**
+	 * Применяет логику переключения значений в зависимости от схемы работы
+	 *
+	 * Бизнес-правило:
+	 * - Для PROVISION_SERVICES: обнуляется Комиссия, остается Дополнительная выгода
+	 * - Для остальных схем: обнуляется Дополнительная выгода, остается Комиссия
+	 *
+	 * @param array &$result Массив данных сделки
+	 * @param string $schemeWork Код схемы работы
+	 * @return void
+	 */
+	private function applySchemeWorkLogic(array &$result, string $schemeWork): void
+	{
+		if ($this->isProvisionServicesScheme($schemeWork)) {
+			$this->resetCommissionFields($result);
+		} else {
+			$this->resetAdditionalBenefitFields($result);
+		}
+	}
+
+	/**
+	 * Проверяет, является ли схема работы "Оказание услуг"
+	 *
+	 * @param string $schemeWork Код схемы работы
+	 * @return bool
+	 */
+	private function isProvisionServicesScheme(string $schemeWork): bool
+	{
+		return $schemeWork === self::SCHEME_PROVISION_SERVICES;
+	}
+
+	/**
+	 * Обнуляет поля комиссии
+	 *
+	 * @param array &$result Массив данных сделки
+	 * @return void
+	 */
+	private function resetCommissionFields(array &$result): void
+	{
+		$result[self::COLUMN_COMMISSION] = 0;
+		$result[self::COLUMN_COMMISSION_CURRENCY] = 0;
+	}
+
+	/**
+	 * Обнуляет поля дополнительной выгоды
+	 *
+	 * @param array &$result Массив данных сделки
+	 * @return void
+	 */
+	private function resetAdditionalBenefitFields(array &$result): void
+	{
+		$result[self::COLUMN_ADDITIONAL_BENEFIT] = 0;
+		$result[self::COLUMN_ADDITIONAL_BENEFIT_CURRENCY] = 0;
 	}
 
 	/**
@@ -162,18 +281,13 @@ class FinancialCardDataProvider
 	 */
 	public function fillDealData(array $dealData, int $dealId): array
 	{
-		// Инициализируем пустыми значениями
-		$result = [];
-		foreach ($this->columnNames as $columnName) {
-			$result[$columnName] = '';
-		}
-
 		// Если есть предзагруженные данные - возвращаем их
 		if (isset($this->dealData[$dealId])) {
 			return $this->dealData[$dealId];
 		}
 
-		return $result;
+		// Иначе возвращаем пустой результат
+		return $this->initializeEmptyResult();
 	}
 
 	/**

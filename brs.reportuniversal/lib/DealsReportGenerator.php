@@ -55,7 +55,7 @@ class DealsReportGenerator
 		'ID' => 'ID',
 		'Название' => 'TITLE',
 		'Дата создания' => 'DATE_CREATE',
-		'ID клиента' => 'CONTACT_ID'
+		'ID клиента Б24' => 'CONTACT_ID'
 	];
 
 	/** @var DealsIterator */
