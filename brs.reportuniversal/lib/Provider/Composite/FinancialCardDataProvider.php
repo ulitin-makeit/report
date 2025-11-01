@@ -22,20 +22,8 @@ class FinancialCardDataProvider
 	/** @var array Названия колонок */
 	private array $columnNames = [];
 
-	/** @var array Маппинг значений схемы работы */
-	private const SCHEME_WORK_MAP = [
-		'BUYER_AGENT' => 'Агент покупателя',
-		'SR_SUPPLIER_AGENT' => 'Агент Поставщика SR',
-		'LR_SUPPLIER_AGENT' => 'Агент Поставщика LR',
-		'PROVISION_SERVICES' => 'Оказание услуг',
-		'RS_TLS_SERVICE_FEE' => 'Сервисный сбор РС ТЛС'
-	];
-
-	/** @var string Схема работы "Оказание услуг" */
-	private const SCHEME_PROVISION_SERVICES = 'PROVISION_SERVICES';
-
-	/** @var string Схема работы "Агент Поставщика SR" */
-	private const SCHEME_SR_SUPPLIER_AGENT = 'SR_SUPPLIER_AGENT';
+	/** @var FinancialCardSchemeProcessor Процессор логики схем работы */
+	private FinancialCardSchemeProcessor $schemeProcessor;
 
 	/** @var array Список колонок из FinancialCardPriceTable */
 	private const PRICE_COLUMNS = [
@@ -57,27 +45,10 @@ class FinancialCardDataProvider
 		'Всего к оплате Клиентом валюта' => 'RESULT_CURRENCY'
 	];
 
-	/** @var string Название колонки "Дополнительная выгода" */
-	private const COLUMN_ADDITIONAL_BENEFIT = 'Дополнительная выгода';
-
-	/** @var string Название колонки "Дополнительная выгода в валюте" */
-	private const COLUMN_ADDITIONAL_BENEFIT_CURRENCY = 'Дополнительная выгода в валюте';
-
-	/** @var string Название колонки "Комиссия" */
-	private const COLUMN_COMMISSION = 'Комиссия';
-
-	/** @var string Название колонки "Комиссия в Валюте" */
-	private const COLUMN_COMMISSION_CURRENCY = 'Комиссия в Валюте';
-
-	/** @var string Название колонки "Всего к оплате Поставщику" */
-	private const COLUMN_SUPPLIER_TOTAL_PAID = 'Всего к оплате Поставщику';
-
-	/** @var string Название колонки "Всего к оплате Поставщику в валюте" */
-	private const COLUMN_SUPPLIER_TOTAL_PAID_CURRENCY = 'Всего к оплате Поставщику в валюте';
-
 	public function __construct(\mysqli $connection)
 	{
 		$this->connection = $connection;
+		$this->schemeProcessor = new FinancialCardSchemeProcessor();
 		$this->initColumnNames();
 	}
 
@@ -184,17 +155,19 @@ class FinancialCardDataProvider
 
 		// Заполняем схему работы
 		$schemeWork = $cardData['SCHEME_WORK'];
-		$result['Схема финансовой карты'] = self::SCHEME_WORK_MAP[$schemeWork] ?? $schemeWork;
+		$result['Схема финансовой карты'] = $this->schemeProcessor->getSchemeDisplayName($schemeWork);
 
 		// Заполняем данные прайса
 		$priceId = $cardData['PRICE_ID'];
 		if ($priceId > 0 && isset($pricesData[$priceId])) {
 			$this->fillPriceData($result, $pricesData[$priceId]);
-			$this->applySchemeWorkLogic($result, $schemeWork);
+			
+			// Применяем бизнес-логику схем работы
+			$this->schemeProcessor->applySchemeWorkLogic($result, $schemeWork);
 			
 			// Применяем логику для схемы SR_SUPPLIER_AGENT
-			if ($this->isSRSupplierAgentScheme($schemeWork)) {
-				$this->applySRSupplierAgentLogic($result, $cardData, $pricesData[$priceId]);
+			if ($this->schemeProcessor->isSRSupplierAgentScheme($schemeWork)) {
+				$this->schemeProcessor->applySRSupplierAgentLogic($result, $cardData, $pricesData[$priceId]);
 			}
 		}
 
@@ -228,118 +201,6 @@ class FinancialCardDataProvider
 			$value = $priceData[$fieldCode] ?? '';
 			$result[$columnName] = $this->formatValue($value);
 		}
-	}
-
-	/**
-	 * Применяет логику переключения значений в зависимости от схемы работы
-	 *
-	 * Бизнес-правило:
-	 * - Для PROVISION_SERVICES: обнуляется Комиссия, остается Дополнительная выгода
-	 * - Для остальных схем: обнуляется Дополнительная выгода, остается Комиссия
-	 *
-	 * @param array &$result Массив данных сделки
-	 * @param string $schemeWork Код схемы работы
-	 * @return void
-	 */
-	private function applySchemeWorkLogic(array &$result, string $schemeWork): void
-	{
-		if ($this->isProvisionServicesScheme($schemeWork)) {
-			$this->resetCommissionFields($result);
-		} else {
-			$this->resetAdditionalBenefitFields($result);
-		}
-	}
-
-	/**
-	 * Применяет логику расчёта "Всего к оплате Поставщику" для схемы SR_SUPPLIER_AGENT
-	 *
-	 * Бизнес-правило:
-	 * - Если SUPPLIER_COMMISSION = 1 (ДА):
-	 *   "Всего к оплате Поставщику" = "Сумма по счету Поставщика (БРУТТО)" + "Сбор поставщика"
-	 * - Если SUPPLIER_COMMISSION != 1 (НЕТ):
-	 *   "Всего к оплате Поставщику" = "Сумма по счету Поставщика (НЕТТО)" + "Сбор поставщика"
-	 *
-	 * @param array &$result Массив данных сделки
-	 * @param array $cardData Данные карты
-	 * @param array $priceData Данные прайса
-	 * @return void
-	 */
-	private function applySRSupplierAgentLogic(array &$result, array $cardData, array $priceData): void
-	{
-		$supplierCommission = $cardData['SUPPLIER_COMMISSION'];
-		
-		// Проверяем, является ли SUPPLIER_COMMISSION равным 1 (как int или string)
-		$isWithCommission = ($supplierCommission === 1 || $supplierCommission === '1');
-
-		// Получаем сбор поставщика
-		$supplierFee = (float)($priceData['SUPPLIER'] ?? 0);
-		$supplierFeeCurrency = (float)($priceData['SUPPLIER_CURRENCY'] ?? 0);
-
-		if ($isWithCommission) {
-			// С комиссией: БРУТТО + Сбор поставщика
-			$supplierGross = (float)($priceData['SUPPLIER_GROSS'] ?? 0);
-			$supplierGrossCurrency = (float)($priceData['SUPPLIER_GROSS_CURRENCY'] ?? 0);
-			
-			$totalRub = round($supplierGross + $supplierFee, 2);
-			$totalCurrency = round($supplierGrossCurrency + $supplierFeeCurrency, 2);
-		} else {
-			// Без комиссии: НЕТТО + Сбор поставщика
-			$supplierNet = (float)($priceData['SUPPLIER_NET'] ?? 0);
-			$supplierNetCurrency = (float)($priceData['SUPPLIER_NET_CURRENCY'] ?? 0);
-			
-			$totalRub = round($supplierNet + $supplierFee, 2);
-			$totalCurrency = round($supplierNetCurrency + $supplierFeeCurrency, 2);
-		}
-
-		// Перезаписываем значения "Всего к оплате Поставщику"
-		$result[self::COLUMN_SUPPLIER_TOTAL_PAID] = $this->formatValue($totalRub);
-		$result[self::COLUMN_SUPPLIER_TOTAL_PAID_CURRENCY] = $this->formatValue($totalCurrency);
-	}
-
-	/**
-	 * Проверяет, является ли схема работы "Оказание услуг"
-	 *
-	 * @param string $schemeWork Код схемы работы
-	 * @return bool
-	 */
-	private function isProvisionServicesScheme(string $schemeWork): bool
-	{
-		return $schemeWork === self::SCHEME_PROVISION_SERVICES;
-	}
-
-	/**
-	 * Проверяет, является ли схема работы "Агент Поставщика SR"
-	 *
-	 * @param string $schemeWork Код схемы работы
-	 * @return bool
-	 */
-	private function isSRSupplierAgentScheme(string $schemeWork): bool
-	{
-		return $schemeWork === self::SCHEME_SR_SUPPLIER_AGENT;
-	}
-
-	/**
-	 * Обнуляет поля комиссии
-	 *
-	 * @param array &$result Массив данных сделки
-	 * @return void
-	 */
-	private function resetCommissionFields(array &$result): void
-	{
-		$result[self::COLUMN_COMMISSION] = 0;
-		$result[self::COLUMN_COMMISSION_CURRENCY] = 0;
-	}
-
-	/**
-	 * Обнуляет поля дополнительной выгоды
-	 *
-	 * @param array &$result Массив данных сделки
-	 * @return void
-	 */
-	private function resetAdditionalBenefitFields(array &$result): void
-	{
-		$result[self::COLUMN_ADDITIONAL_BENEFIT] = 0;
-		$result[self::COLUMN_ADDITIONAL_BENEFIT_CURRENCY] = 0;
 	}
 
 	/**
