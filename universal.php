@@ -60,6 +60,9 @@
 			'VAT_22_122' => 'CalculatedVat22122',
 		);
 
+		/** Коэффициент «сумма с НДС» (1 + ставка НДС) для расчёта сумм без НДС */
+		private const VAT_COEFFICIENT = 1.22;
+
 		static array $headerCodes; // содержит массив соответствий
 
 		/*
@@ -1472,7 +1475,7 @@
 							}
 
 							// в зависимости от типа НДС применяем формулу расчёта поля без НДС
-							$bodyRow[$headerKeys['Дополнительная выгода без НДС']] = $bodyRow[$headerKeys['Дополнительная выгода']]/1.22;
+							$bodyRow[$headerKeys['Дополнительная выгода без НДС']] = $bodyRow[$headerKeys['Дополнительная выгода']]/self::VAT_COEFFICIENT;
 
 						}
 
@@ -1488,7 +1491,7 @@
 								$bodyRow[$headerKeys['Комиссия']] = $middleCourseCentralBank * $cardPrice[$financialCardColumnName['Комиссия']];
 							}
 
-							$bodyRow[$headerKeys['Комиссия без НДС']] = $bodyRow[$headerKeys['Комиссия']]/1.22; // всегда -22%
+							$bodyRow[$headerKeys['Комиссия без НДС']] = $bodyRow[$headerKeys['Комиссия']]/self::VAT_COEFFICIENT; // всегда -22%
 
 							$bodyRow[$headerKeys['Комиссия']] = number_format((float)$bodyRow[$headerKeys['Комиссия']], 2, '.', '');
 
@@ -1510,7 +1513,7 @@
 
 							}
 
-							$bodyRow[$headerKeys['Сервисный сбор без НДС']] = $bodyRow[$headerKeys['Сервисный сбор']]/1.22; // всегда -22%
+							$bodyRow[$headerKeys['Сервисный сбор без НДС']] = $bodyRow[$headerKeys['Сервисный сбор']]/self::VAT_COEFFICIENT; // всегда -22%
 
 						}
 
@@ -1565,7 +1568,7 @@
 						if($bodyRow[$headerKeys['Схема финансовой карты']] === 'Оказание услуг' && !$isNds && $profit > 0){
 							$profitMinusNds = $profit;
 						} else if($profit > 0){
-							$profitMinusNds = $profit/1.22;
+							$profitMinusNds = $profit/self::VAT_COEFFICIENT;
 						}
 
 						// заполняем общие поля с ндс
@@ -1576,7 +1579,7 @@
 						if((int) ($totalPaidClient['success'] + $totalPaidClient['refund']) == 0){
 							$bodyRow[$headerKeys['Сумма прибыли с учетом возврата без НДС']] = 0;
 						} else if($totalPaidClient['refund'] < 0){
-							$bodyRow[$headerKeys['Сумма прибыли с учетом возврата без НДС']] = $profit + ($totalPaidClient['refund']/1.22);
+							$bodyRow[$headerKeys['Сумма прибыли с учетом возврата без НДС']] = $profit + ($totalPaidClient['refund']/self::VAT_COEFFICIENT);
 						}
 
 						// если были найдены возвраты
