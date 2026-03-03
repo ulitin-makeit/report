@@ -1472,7 +1472,7 @@
 							}
 
 							// в зависимости от типа НДС применяем формулу расчёта поля без НДС
-							$bodyRow[$headerKeys['Дополнительная выгода без НДС']] = $bodyRow[$headerKeys['Дополнительная выгода']]/1.2;
+							$bodyRow[$headerKeys['Дополнительная выгода без НДС']] = $bodyRow[$headerKeys['Дополнительная выгода']]/1.22;
 
 						}
 
@@ -1488,7 +1488,7 @@
 								$bodyRow[$headerKeys['Комиссия']] = $middleCourseCentralBank * $cardPrice[$financialCardColumnName['Комиссия']];
 							}
 
-							$bodyRow[$headerKeys['Комиссия без НДС']] = $bodyRow[$headerKeys['Комиссия']]/1.2; // всегда -20%
+							$bodyRow[$headerKeys['Комиссия без НДС']] = $bodyRow[$headerKeys['Комиссия']]/1.22; // всегда -22%
 
 							$bodyRow[$headerKeys['Комиссия']] = number_format((float)$bodyRow[$headerKeys['Комиссия']], 2, '.', '');
 
@@ -1510,7 +1510,7 @@
 
 							}
 
-							$bodyRow[$headerKeys['Сервисный сбор без НДС']] = $bodyRow[$headerKeys['Сервисный сбор']]/1.2; // всегда -20%
+							$bodyRow[$headerKeys['Сервисный сбор без НДС']] = $bodyRow[$headerKeys['Сервисный сбор']]/1.22; // всегда -22%
 
 						}
 
@@ -1565,7 +1565,7 @@
 						if($bodyRow[$headerKeys['Схема финансовой карты']] === 'Оказание услуг' && !$isNds && $profit > 0){
 							$profitMinusNds = $profit;
 						} else if($profit > 0){
-							$profitMinusNds = $profit/1.2;
+							$profitMinusNds = $profit/1.22;
 						}
 
 						// заполняем общие поля с ндс
@@ -1576,7 +1576,7 @@
 						if((int) ($totalPaidClient['success'] + $totalPaidClient['refund']) == 0){
 							$bodyRow[$headerKeys['Сумма прибыли с учетом возврата без НДС']] = 0;
 						} else if($totalPaidClient['refund'] < 0){
-							$bodyRow[$headerKeys['Сумма прибыли с учетом возврата без НДС']] = $profit + ($totalPaidClient['refund']/1.2);
+							$bodyRow[$headerKeys['Сумма прибыли с учетом возврата без НДС']] = $profit + ($totalPaidClient['refund']/1.22);
 						}
 
 						// если были найдены возвраты
